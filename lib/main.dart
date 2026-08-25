@@ -1,6 +1,18 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'screens/auth/login_screen.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // TODO: Replace with your actual Supabase URL and Anon Key
+  await Supabase.initialize(
+    url: 'https://your-supabase-url.supabase.co',
+    // ignore: deprecated_member_use
+    anonKey: 'your-supabase-anon-key',
+  );
+
   runApp(const MyApp());
 }
 
@@ -21,8 +33,58 @@ class MyApp extends StatelessWidget {
         useMaterial3: true,
         fontFamily: 'Roboto',
       ),
-      home: const AtsReportScreen(),
+      home: const AuthWrapper(),
     );
+  }
+}
+
+class AuthWrapper extends StatefulWidget {
+  const AuthWrapper({super.key});
+
+  @override
+  State<AuthWrapper> createState() => _AuthWrapperState();
+}
+
+class _AuthWrapperState extends State<AuthWrapper> {
+  late final StreamSubscription<AuthState> _authSubscription;
+  bool _initialCheckDone = false;
+  Session? _session;
+
+  @override
+  void initState() {
+    super.initState();
+    _session = Supabase.instance.client.auth.currentSession;
+    _initialCheckDone = true;
+    _authSubscription = Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+      setState(() {
+        _session = data.session;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _authSubscription.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_initialCheckDone) {
+      return const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(
+            color: Color(0xFF0A369D),
+          ),
+        ),
+      );
+    }
+
+    if (_session != null) {
+      return const AtsReportScreen();
+    } else {
+      return const LoginScreen();
+    }
   }
 }
 
@@ -282,7 +344,31 @@ class _AtsReportScreenState extends State<AtsReportScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.account_circle_outlined, color: Colors.black87),
-            onPressed: () {},
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Sair'),
+                  content: const Text('Deseja realmente sair da sua conta?'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Cancelar'),
+                    ),
+                    TextButton(
+                      onPressed: () async {
+                        Navigator.pop(context);
+                        await Supabase.instance.client.auth.signOut();
+                      },
+                      child: const Text(
+                        'Sair',
+                        style: TextStyle(color: Colors.redAccent),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
           const SizedBox(width: 8),
         ],
