@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../main.dart';
-import '../cliente/orcamento_client_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   final VoidCallback? onBypass;
@@ -512,32 +511,6 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                                     fontSize: 16,
                                     fontWeight: FontWeight.bold,
                                   ),
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              OutlinedButton.icon(
-                                onPressed: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => const OrcamentoClientScreen(
-                                        token: '8f7d9a12-4c3e-4e8b-a2f1-0987654321ab',
-                                      ),
-                                    ),
-                                  );
-                                },
-                                icon: const Icon(Icons.assignment_turned_in_outlined, size: 16),
-                                label: const Text(
-                                  'Portal do Cliente (Aprovar Orçamento)',
-                                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                                ),
-                                style: OutlinedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  side: BorderSide(color: Colors.white.withOpacity(0.2)),
-                                  foregroundColor: Colors.white70,
                                 ),
                               ),
                             ],

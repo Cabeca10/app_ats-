@@ -3,6 +3,7 @@ import 'dart:convert';
 /// Status possíveis do chamado no fluxo operacional
 class ChamadoStatus {
   static const String novo = 'novo';
+  static const String orcamentoPendenteEnvio = 'orcamento_pendente_envio';
   static const String orcamentoEnviado = 'orcamento_enviado';
   static const String aprovadoPendente = 'aprovado_pendente';
   static const String atribuido = 'atribuido';
@@ -11,6 +12,8 @@ class ChamadoStatus {
 
   static String getLabel(String status) {
     switch (status) {
+      case orcamentoPendenteEnvio:
+        return 'Pendente de Envio';
       case orcamentoEnviado:
         return 'Orçamento Enviado';
       case aprovadoPendente:
@@ -39,6 +42,10 @@ class Chamado {
   final String? clienteEmail;
   final String? endereco;
   final String? cidade;
+
+  final String? contato;
+  final String? anotacaoEnvio;
+  final DateTime? dataEnvioLink;
 
   // Equipamento
   final String? fabricante;
@@ -79,6 +86,9 @@ class Chamado {
     required this.id,
     required this.numeroAts,
     required this.razaoSocial,
+    this.contato,
+    this.anotacaoEnvio,
+    this.dataEnvioLink,
     this.cnpj,
     this.inscricaoEstadual,
     this.telefone,
@@ -114,6 +124,9 @@ class Chamado {
     String? id,
     String? numeroAts,
     String? razaoSocial,
+    String? contato,
+    String? anotacaoEnvio,
+    DateTime? dataEnvioLink,
     String? cnpj,
     String? inscricaoEstadual,
     String? telefone,
@@ -148,6 +161,9 @@ class Chamado {
       id: id ?? this.id,
       numeroAts: numeroAts ?? this.numeroAts,
       razaoSocial: razaoSocial ?? this.razaoSocial,
+      contato: contato ?? this.contato,
+      anotacaoEnvio: anotacaoEnvio ?? this.anotacaoEnvio,
+      dataEnvioLink: dataEnvioLink ?? this.dataEnvioLink,
       cnpj: cnpj ?? this.cnpj,
       inscricaoEstadual: inscricaoEstadual ?? this.inscricaoEstadual,
       telefone: telefone ?? this.telefone,
@@ -185,6 +201,9 @@ class Chamado {
       'id': id,
       'numero_ats': numeroAts,
       'razao_social': razaoSocial,
+      'contato': contato,
+      'anotacao_envio': anotacaoEnvio,
+      'data_envio_link': dataEnvioLink?.toIso8601String(),
       'cnpj': cnpj,
       'inscricao_estadual': inscricaoEstadual,
       'telefone': telefone,
@@ -222,6 +241,9 @@ class Chamado {
       id: map['id'] ?? '',
       numeroAts: map['numero_ats'] ?? '',
       razaoSocial: map['razao_social'] ?? '',
+      contato: map['contato'],
+      anotacaoEnvio: map['anotacao_envio'],
+      dataEnvioLink: map['data_envio_link'] != null ? DateTime.tryParse(map['data_envio_link']) : null,
       cnpj: map['cnpj'],
       inscricaoEstadual: map['inscricao_estadual'],
       telefone: map['telefone'],

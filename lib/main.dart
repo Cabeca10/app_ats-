@@ -24,11 +24,42 @@ Future<void> main() async {
   runApp(const MyApp());
 }
 
+/// Extrai o token público de orçamento a partir da rota ou da URL do navegador (Web)
+String? _extrairTokenPublico(Uri uri) {
+  // 1. Verifica parâmetro de query ?token=...
+  if (uri.queryParameters.containsKey('token') && uri.queryParameters['token']!.isNotEmpty) {
+    return uri.queryParameters['token'];
+  }
+
+  // 2. Verifica segmentos de caminho: /orcamento/:token ou /aprovar/:token
+  if (uri.pathSegments.isNotEmpty) {
+    final first = uri.pathSegments.first.toLowerCase();
+    if ((first == 'orcamento' || first == 'aprovar') && uri.pathSegments.length > 1) {
+      final possibleToken = uri.pathSegments[1].trim();
+      if (possibleToken.isNotEmpty) return possibleToken;
+    }
+  }
+
+  // 3. Suporte ao padrão de hash routing do Flutter Web: /#/orcamento?token=... ou /#/aprovar/...
+  if (uri.hasFragment && uri.fragment.isNotEmpty) {
+    try {
+      final fragmentPath = uri.fragment.startsWith('/') ? uri.fragment : '/${uri.fragment}';
+      final fragmentUri = Uri.parse(fragmentPath);
+      return _extrairTokenPublico(fragmentUri);
+    } catch (_) {}
+  }
+
+  return null;
+}
+
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
+    // Detecta se a URL inicial do navegador na Web já possui o token público
+    final webInitialToken = _extrairTokenPublico(Uri.base);
+
     return MaterialApp(
       title: 'ATS Serviços - Equipamentos e Peças Ltda',
       debugShowCheckedModeBanner: false,
@@ -41,21 +72,19 @@ class MyApp extends StatelessWidget {
         useMaterial3: true,
         fontFamily: 'Roboto',
       ),
+      // Se na inicialização web houver token, abre DIRETO o orçamento sem passar pelo AuthWrapper
+      home: webInitialToken != null ? OrcamentoClientScreen(token: webInitialToken) : null,
       onGenerateRoute: (settings) {
         final uri = Uri.parse(settings.name ?? '/');
-        // Suporte a rota pública: /orcamento/:token ou /orcamento?token=...
-        if (uri.pathSegments.isNotEmpty && uri.pathSegments.first == 'orcamento') {
-          String token = '8f7d9a12-4c3e-4e8b-a2f1-0987654321ab';
-          if (uri.pathSegments.length > 1 && uri.pathSegments[1].isNotEmpty) {
-            token = uri.pathSegments[1];
-          } else if (uri.queryParameters.containsKey('token')) {
-            token = uri.queryParameters['token']!;
-          }
+        final publicToken = _extrairTokenPublico(uri) ?? _extrairTokenPublico(Uri.base);
+
+        if (publicToken != null) {
           return MaterialPageRoute(
-            builder: (_) => OrcamentoClientScreen(token: token),
+            builder: (_) => OrcamentoClientScreen(token: publicToken),
             settings: settings,
           );
         }
+
         return MaterialPageRoute(
           builder: (_) => const AuthWrapper(),
           settings: settings,
@@ -64,6 +93,7 @@ class MyApp extends StatelessWidget {
     );
   }
 }
+
 
 
 class AuthWrapper extends StatefulWidget {

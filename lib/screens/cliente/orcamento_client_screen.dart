@@ -23,6 +23,10 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
   final _currencyFormat = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
 
   late final SignatureController _signatureController;
+  final _razaoSocialController = TextEditingController();
+  final _cnpjController = TextEditingController();
+  final _inscricaoEstadualController = TextEditingController();
+  final _enderecoController = TextEditingController();
   final _nomeController = TextEditingController();
   final _cargoController = TextEditingController();
 
@@ -48,6 +52,10 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
   @override
   void dispose() {
     _signatureController.dispose();
+    _razaoSocialController.dispose();
+    _cnpjController.dispose();
+    _inscricaoEstadualController.dispose();
+    _enderecoController.dispose();
     _nomeController.dispose();
     _cargoController.dispose();
     super.dispose();
@@ -76,9 +84,28 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
         // Mock demonstrativo caso o token não exista no banco remoto ou em teste local
         _chamado = _criarChamadoMock(widget.token);
       }
+
+      if (_chamado != null) {
+        _razaoSocialController.text = _chamado!.razaoSocial;
+        _cnpjController.text = _chamado!.cnpj ?? '';
+        _inscricaoEstadualController.text = _chamado!.inscricaoEstadual ?? '';
+        _enderecoController.text = _chamado!.endereco ?? '';
+        if (_chamado!.responsavelAceiteNome != null) {
+          _nomeController.text = _chamado!.responsavelAceiteNome!;
+        }
+        if (_chamado!.responsavelAceiteCargo != null) {
+          _cargoController.text = _chamado!.responsavelAceiteCargo!;
+        }
+      }
     } catch (_) {
       // Fallback gracioso com dados de demonstração
       _chamado = _criarChamadoMock(widget.token);
+      if (_chamado != null) {
+        _razaoSocialController.text = _chamado!.razaoSocial;
+        _cnpjController.text = _chamado!.cnpj ?? '';
+        _inscricaoEstadualController.text = _chamado!.inscricaoEstadual ?? '';
+        _enderecoController.text = _chamado!.endereco ?? '';
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -97,7 +124,7 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
       inscricaoEstadual: '254.987.123',
       telefone: '(47) 3456-7890',
       clienteEmail: 'manutencao@haasjoinville.com.br',
-      endereco: 'Rua das Indústrias, 1500 - Distrito Industrial',
+      endereco: 'Rua das Indústrias, 1500 - Distrito Industrial - Joinville/SC',
       cidade: 'Joinville - SC',
       fabricante: 'Pmach',
       modeloMaquina: 'Centro de Usinagem CNC V-400',
@@ -116,6 +143,26 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
   }
 
   Future<void> _submeterAprovacao() async {
+    if (_razaoSocialController.text.trim().isEmpty) {
+      _mostrarAlerta('Informe a Razão Social da empresa.');
+      return;
+    }
+
+    if (_cnpjController.text.trim().isEmpty) {
+      _mostrarAlerta('Informe o CNPJ da empresa.');
+      return;
+    }
+
+    if (_inscricaoEstadualController.text.trim().isEmpty) {
+      _mostrarAlerta('Informe a Inscrição Estadual (ou informe ISENTO).');
+      return;
+    }
+
+    if (_enderecoController.text.trim().isEmpty) {
+      _mostrarAlerta('Informe o Endereço Completo da empresa.');
+      return;
+    }
+
     if (!_termosAceitos) {
       _mostrarAlerta('Por favor, confirme o aceite dos termos de atendimento.');
       return;
@@ -141,8 +188,25 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
         throw Exception('Erro ao capturar assinatura.');
       }
 
+      final razao = _razaoSocialController.text.trim();
+      final cnpj = _cnpjController.text.trim();
+      final ie = _inscricaoEstadualController.text.trim();
+      final end = _enderecoController.text.trim();
       final nome = _nomeController.text.trim();
       final cargo = _cargoController.text.trim().isEmpty ? 'Responsável Autorizado' : _cargoController.text.trim();
+
+      // Atualiza o chamado em memória com os dados preenchidos pelo cliente
+      _chamado = _chamado!.copyWith(
+        razaoSocial: razao,
+        cnpj: cnpj,
+        inscricaoEstadual: ie,
+        endereco: end,
+        responsavelAceiteNome: nome,
+        responsavelAceiteCargo: cargo,
+        termosAceitos: true,
+        aceiteData: DateTime.now(),
+        status: ChamadoStatus.aprovadoPendente,
+      );
 
       // Gera o documento PDF formal
       final pdfBytes = await OrcamentoPdfService.generatePdf(
@@ -166,13 +230,6 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
       if (mounted) {
         setState(() {
           _aprovadoComSucesso = true;
-          _chamado = _chamado!.copyWith(
-            status: ChamadoStatus.aprovadoPendente,
-            termosAceitos: true,
-            responsavelAceiteNome: nome,
-            responsavelAceiteCargo: cargo,
-            aceiteData: DateTime.now(),
-          );
         });
       }
     } catch (e) {
@@ -271,23 +328,23 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
                       _buildHeaderBanner(),
                       const SizedBox(height: 16),
 
-                      // Card: Dados do Cliente
-                      _buildClienteCard(),
-                      const SizedBox(height: 16),
-
-                      // Card: Dados do Equipamento e Sintoma
+                      // Card 1: Dados do Equipamento e Sintoma (cliente visualiza primeiro)
                       _buildEquipamentoCard(),
                       const SizedBox(height: 16),
 
-                      // Card: Condições Comerciais e Taxas
+                      // Card 2: Dados Cadastrais Obrigatórios (preenchidos/confirmados pelo cliente)
+                      _buildClienteCard(),
+                      const SizedBox(height: 16),
+
+                      // Card 3: Condições Comerciais e Taxas
                       _buildCondicoesComerciaisCard(),
                       const SizedBox(height: 16),
 
-                      // Card: Termos de Prestação de Serviço
+                      // Card 4: Termos de Prestação de Serviço
                       _buildTermosCard(),
                       const SizedBox(height: 24),
 
-                      // Card: Assinatura Digital do Cliente
+                      // Card 5: Assinatura Digital do Cliente
                       _buildAssinaturaCard(),
                       const SizedBox(height: 28),
 
@@ -423,24 +480,9 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
     );
   }
 
-  Widget _buildClienteCard() {
-    return _buildSectionCard(
-      title: '1. Identificação da Empresa',
-      icon: Icons.business,
-      children: [
-        _buildInfoRow('Razão Social:', _chamado?.razaoSocial ?? '---'),
-        _buildInfoRow('CNPJ:', _chamado?.cnpj ?? '---'),
-        _buildInfoRow('Inscrição Estadual:', _chamado?.inscricaoEstadual ?? '---'),
-        _buildInfoRow('Endereço:', _chamado?.endereco ?? '---'),
-        _buildInfoRow('Telefone:', _chamado?.telefone ?? '---'),
-        _buildInfoRow('E-mail:', _chamado?.clienteEmail ?? '---'),
-      ],
-    );
-  }
-
   Widget _buildEquipamentoCard() {
     return _buildSectionCard(
-      title: '2. Dados do Equipamento & Sintoma Relatado',
+      title: '1. Dados do Equipamento & Sintoma Relatado',
       icon: Icons.precision_manufacturing_outlined,
       children: [
         _buildInfoRow('Fabricante:', _chamado?.fabricante ?? 'Pmach'),
@@ -465,6 +507,107 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
             style: const TextStyle(fontSize: 13, color: Color(0xFF1E293B)),
           ),
         ),
+      ],
+    );
+  }
+
+  Widget _buildClienteCard() {
+    return _buildSectionCard(
+      title: '2. Dados Cadastrais da Empresa (Obrigatório)',
+      icon: Icons.business,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: const Color(0xFFEFF6FF),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFFBFDBFE)),
+          ),
+          child: const Row(
+            children: [
+              Icon(Icons.edit_note, size: 18, color: Color(0xFF1E40AF)),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Por favor, preencha ou confirme os dados cadastrais da sua empresa para emissão da O.S. e faturamento.',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF1E40AF), fontWeight: FontWeight.w500),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+
+        // Razão Social
+        TextFormField(
+          controller: _razaoSocialController,
+          decoration: InputDecoration(
+            labelText: 'Razão Social *',
+            hintText: 'Nome empresarial completo',
+            prefixIcon: const Icon(Icons.business_outlined, size: 18),
+            filled: true,
+            fillColor: const Color(0xFFF8FAFC),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // CNPJ e Inscrição Estadual
+        Row(
+          children: [
+            Expanded(
+              flex: 3,
+              child: TextFormField(
+                controller: _cnpjController,
+                decoration: InputDecoration(
+                  labelText: 'CNPJ *',
+                  hintText: '00.000.000/0001-00',
+                  prefixIcon: const Icon(Icons.badge_outlined, size: 18),
+                  filled: true,
+                  fillColor: const Color(0xFFF8FAFC),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 2,
+              child: TextFormField(
+                controller: _inscricaoEstadualController,
+                decoration: InputDecoration(
+                  labelText: 'Inscrição Estadual *',
+                  hintText: 'Número ou ISENTO',
+                  filled: true,
+                  fillColor: const Color(0xFFF8FAFC),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+
+        // Endereço Completo
+        TextFormField(
+          controller: _enderecoController,
+          decoration: InputDecoration(
+            labelText: 'Endereço Completo de Instalação *',
+            hintText: 'Rua, Número, Bairro, Cidade - UF, CEP',
+            prefixIcon: const Icon(Icons.location_on_outlined, size: 18),
+            filled: true,
+            fillColor: const Color(0xFFF8FAFC),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          ),
+        ),
+
+        if (_chamado?.telefone != null && _chamado!.telefone!.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          _buildInfoRow('Telefone/WhatsApp:', _chamado!.telefone!),
+        ],
       ],
     );
   }
@@ -736,11 +879,21 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
               ElevatedButton.icon(
                 onPressed: () async {
                   if (_generatedPdfBytes != null) {
-                    await Printing.layoutPdf(onLayout: (_) => _generatedPdfBytes!);
-                  } else {
-                    // Tenta recriar ou abrir
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Abrindo documento assinado...')),
+                    await Printing.layoutPdf(
+                      onLayout: (_) => _generatedPdfBytes!,
+                      name: 'Orcamento_${_chamado?.numeroAts ?? "ATS"}_Assinado.pdf',
+                    );
+                  } else if (_chamado != null) {
+                    final dummySignature = List<int>.generate(80, (i) => 255);
+                    final pdfBytes = await OrcamentoPdfService.generatePdf(
+                      chamado: _chamado!,
+                      signatureBytes: Uint8List.fromList(dummySignature),
+                      responsavelNome: _chamado!.responsavelAceiteNome ?? 'Responsável Autorizado',
+                      responsavelCargo: _chamado!.responsavelAceiteCargo ?? 'Cliente',
+                    );
+                    await Printing.layoutPdf(
+                      onLayout: (_) => pdfBytes,
+                      name: 'Orcamento_${_chamado?.numeroAts ?? "ATS"}_Assinado.pdf',
                     );
                   }
                 },

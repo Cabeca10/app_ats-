@@ -145,30 +145,84 @@ class ChamadosService {
     return false;
   }
 
-  /// Adiciona um novo chamado ao fluxo
+  /// Atualiza os dados de um chamado existente no estado local e no Supabase
+  Future<bool> atualizarChamado(Chamado chamadoAtualizado) async {
+    try {
+      await Supabase.instance.client
+          .from('chamados')
+          .update(chamadoAtualizado.toMap())
+          .eq('id', chamadoAtualizado.id);
+    } catch (_) {}
+
+    final listaAtual = List<Chamado>.from(chamadosNotifier.value);
+    final index = listaAtual.indexWhere((c) => c.id == chamadoAtualizado.id || c.tokenUrl == chamadoAtualizado.tokenUrl);
+
+    if (index != -1) {
+      listaAtual[index] = chamadoAtualizado;
+      chamadosNotifier.value = listaAtual;
+      return true;
+    }
+    return false;
+  }
+
+  /// Registra o carimbo de envio do link (WhatsApp ou Copiar Link) e atualiza para orcamento_enviado
+  Future<bool> registrarEnvioLink({
+    required String chamadoId,
+    required String anotacao,
+  }) async {
+    final agora = DateTime.now();
+
+    try {
+      await Supabase.instance.client.from('chamados').update({
+        'status': ChamadoStatus.orcamentoEnviado,
+        'anotacao_envio': anotacao,
+        'data_envio_link': agora.toIso8601String(),
+        'updated_at': agora.toIso8601String(),
+      }).eq('id', chamadoId);
+    } catch (_) {}
+
+    final listaAtual = List<Chamado>.from(chamadosNotifier.value);
+    final index = listaAtual.indexWhere((c) => c.id == chamadoId || c.numeroAts == chamadoId);
+
+    if (index != -1) {
+      listaAtual[index] = listaAtual[index].copyWith(
+        status: ChamadoStatus.orcamentoEnviado,
+        anotacaoEnvio: anotacao,
+        dataEnvioLink: agora,
+        updatedAt: agora,
+      );
+      chamadosNotifier.value = listaAtual;
+      return true;
+    }
+
+    return false;
+  }
+
+  /// Cria um novo orçamento simplificado aberto pelo Gerente (sem endereço nem CNPJ)
   Future<Chamado> criarNovoChamado({
-    required String razaoSocial,
+    required String contato,
+    required String telefone,
+    required String fabricante,
     required String modeloMaquina,
     required String defeitoRelatado,
-    required String endereco,
-    String? cnpj,
-    String? telefone,
-    String? clienteEmail,
+    String? razaoSocial,
   }) async {
     final novoNumero = '0147${44 + chamadosNotifier.value.length}';
     final token = 'tok-${DateTime.now().millisecondsSinceEpoch}';
+    final agora = DateTime.now();
+
     final novo = Chamado(
-      id: 'chamado-${DateTime.now().millisecondsSinceEpoch}',
+      id: 'chamado-${agora.millisecondsSinceEpoch}',
       numeroAts: novoNumero,
-      razaoSocial: razaoSocial,
+      razaoSocial: (razaoSocial != null && razaoSocial.trim().isNotEmpty) ? razaoSocial.trim() : contato,
+      contato: contato,
+      telefone: telefone,
+      fabricante: fabricante,
       modeloMaquina: modeloMaquina,
       defeitoRelatado: defeitoRelatado,
-      endereco: endereco,
-      cnpj: cnpj,
-      telefone: telefone,
-      clienteEmail: clienteEmail,
       tokenUrl: token,
-      status: ChamadoStatus.orcamentoEnviado,
+      status: ChamadoStatus.orcamentoPendenteEnvio,
+      createdAt: agora,
     );
 
     try {

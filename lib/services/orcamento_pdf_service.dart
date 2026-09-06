@@ -4,6 +4,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/chamado.dart';
+import 'chamados_service.dart';
 
 class OrcamentoPdfService {
   static final _currencyFormat = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
@@ -437,21 +438,40 @@ class OrcamentoPdfService {
       pdfUrl = 'https://storage.local/orcamentos/$pdfPath';
     }
 
-    // 3. Atualiza o Chamado no Supabase para 'aprovado_pendente'
+    // 3. Atualiza o Chamado no Supabase para 'aprovado_pendente' com dados cadastrais preenchidos
+    final agora = DateTime.now();
     try {
       await client.from('chamados').update({
         'status': ChamadoStatus.aprovadoPendente,
+        'razao_social': chamado.razaoSocial,
+        'cnpj': chamado.cnpj,
+        'inscricao_estadual': chamado.inscricaoEstadual,
+        'endereco': chamado.endereco,
+        'cidade': chamado.cidade,
         'termos_aceitos': true,
-        'aceite_data': DateTime.now().toIso8601String(),
+        'aceite_data': agora.toIso8601String(),
         'responsavel_aceite_nome': responsavelNome,
         'responsavel_aceite_cargo': responsavelCargo,
         'assinatura_url': signatureUrl,
         'orcamento_pdf_url': pdfUrl,
-        'updated_at': DateTime.now().toIso8601String(),
+        'updated_at': agora.toIso8601String(),
       }).eq('token_url', chamado.tokenUrl);
     } catch (_) {
       // Continua caso em modo mock/demo
     }
+
+    // Sincroniza o estado reativo local no ChamadosService
+    final chamadoAtualizado = chamado.copyWith(
+      status: ChamadoStatus.aprovadoPendente,
+      termosAceitos: true,
+      aceiteData: agora,
+      responsavelAceiteNome: responsavelNome,
+      responsavelAceiteCargo: responsavelCargo,
+      assinaturaUrl: signatureUrl,
+      orcamentoPdfUrl: pdfUrl,
+      updatedAt: agora,
+    );
+    await ChamadosService.instance.atualizarChamado(chamadoAtualizado);
 
     // 4. Disparo da Supabase Edge Function para envio dos e-mails
     try {
