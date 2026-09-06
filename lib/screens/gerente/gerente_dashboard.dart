@@ -1,8 +1,9 @@
-// ignore_for_file: deprecated_member_use
-
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../main.dart';
+import '../../models/chamado.dart';
+import '../../services/chamados_service.dart';
+import 'chamados_list_screen.dart';
 
 const Color _emerald = Color(0xFF10B981);
 
@@ -139,6 +140,11 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
             label: 'Painel',
           ),
           BottomNavigationBarItem(
+            icon: Icon(Icons.assignment_outlined),
+            activeIcon: Icon(Icons.assignment),
+            label: 'Chamados',
+          ),
+          BottomNavigationBarItem(
             icon: Icon(Icons.people_outline),
             activeIcon: Icon(Icons.people),
             label: 'Equipe',
@@ -158,8 +164,10 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
       case 0:
         return _buildPainelPage();
       case 1:
-        return _buildEquipePage();
+        return const ChamadosListScreen();
       case 2:
+        return _buildEquipePage();
+      case 3:
         return _buildPerfilPage();
       default:
         return _buildPainelPage();
@@ -215,15 +223,35 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
           ),
         ),
 
-        // Quick Stats row
+        // Quick Stats row com contagem reativa de orçamentos aprovados
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16.0),
-          child: Row(
-            children: [
-              Expanded(child: _buildStatCard('Em Campo', '2', Icons.directions_run, Colors.orangeAccent)),
-              const SizedBox(width: 12),
-              Expanded(child: _buildStatCard('Pendente Aprovação', '${_pendingApprovals.length}', Icons.fact_check, Colors.blueAccent)),
-            ],
+          child: ValueListenableBuilder<List<Chamado>>(
+            valueListenable: ChamadosService.instance.chamadosNotifier,
+            builder: (context, chamados, _) {
+              final pendentes = chamados.where((c) => c.status == ChamadoStatus.aprovadoPendente).length;
+              return Row(
+                children: [
+                  Expanded(child: _buildStatCard('Em Campo', '2', Icons.directions_run, Colors.orangeAccent)),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _currentIndex = 1; // Navega para a aba de Chamados
+                        });
+                      },
+                      child: _buildStatCard(
+                        'Orçamentos Aprovados',
+                        '$pendentes',
+                        Icons.verified,
+                        const Color(0xFF10B981),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
         const SizedBox(height: 20),

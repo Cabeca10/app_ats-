@@ -1,8 +1,11 @@
-// ignore_for_file: deprecated_member_use
-
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:printing/printing.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../main.dart'; // Import to access AtsReportScreen
+import '../../models/chamado.dart';
+import '../../services/chamados_service.dart';
+import '../../services/orcamento_pdf_service.dart';
 
 const Color _emerald = Color(0xFF10B981);
 const Color _emeraldDark = Color(0xFF065F46);
@@ -15,6 +18,8 @@ class Ticket {
   final String priority; // 'Alta', 'Média', 'Baixa'
   final String status; // 'Pendente', 'Em Andamento', 'Concluído'
   final String address;
+  final String? defeitoRelatado;
+  final String? orcamentoPdfUrl;
 
   Ticket({
     required this.id,
@@ -24,6 +29,8 @@ class Ticket {
     required this.priority,
     required this.status,
     required this.address,
+    this.defeitoRelatado,
+    this.orcamentoPdfUrl,
   });
 }
 
@@ -292,14 +299,37 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
           ),
         ),
 
-        // List of tickets
+        // List of tickets integrado com ChamadosService
         Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            itemCount: _tickets.length,
-            itemBuilder: (context, index) {
-              final ticket = _tickets[index];
-              return _buildTicketCard(ticket);
+          child: ValueListenableBuilder<List<Chamado>>(
+            valueListenable: ChamadosService.instance.chamadosNotifier,
+            builder: (context, chamados, _) {
+              // Converte os chamados atribuídos pelo gerente em tickets para o técnico
+              final chamadosAtribuidos = chamados
+                  .where((c) => c.status == ChamadoStatus.atribuido)
+                  .map((c) => Ticket(
+                        id: 'ATS-${c.numeroAts}',
+                        companyName: c.razaoSocial,
+                        machineModel: '${c.fabricante ?? "Pmach"} ${c.modeloMaquina ?? ""}',
+                        scheduledTime: 'Prioritário',
+                        priority: 'Alta',
+                        status: 'Pendente',
+                        address: c.endereco ?? 'Joinville / Região',
+                        defeitoRelatado: c.defeitoRelatado,
+                        orcamentoPdfUrl: c.orcamentoPdfUrl,
+                      ))
+                  .toList();
+
+              final allTickets = [..._tickets, ...chamadosAtribuidos];
+
+              return ListView.builder(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                itemCount: allTickets.length,
+                itemBuilder: (context, index) {
+                  final ticket = allTickets[index];
+                  return _buildTicketCard(ticket);
+                },
+              );
             },
           ),
         ),
@@ -425,6 +455,22 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
                         fontWeight: FontWeight.w500,
                       ),
                     ),
+                    if (ticket.defeitoRelatado != null) ...[
+                      const SizedBox(height: 6),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: Colors.grey.shade200),
+                        ),
+                        child: Text(
+                          'Defeito: ${ticket.defeitoRelatado}',
+                          style: const TextStyle(fontSize: 12, color: Color(0xFF334155)),
+                        ),
+                      ),
+                    ],
                     const Divider(height: 20, thickness: 0.5),
 
                     // Technical meta details: Hour and Location
@@ -492,45 +538,63 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
                         ),
 
                         // Action Button
-                        if (ticket.status != "Concluído")
-                          ElevatedButton.icon(
-                            onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => const AtsReportScreen(),
+                        Row(
+                          children: [
+                            if (ticket.defeitoRelatado != null || ticket.orcamentoPdfUrl != null) ...[
+                              OutlinedButton.icon(
+                                onPressed: () => _abrirPdfOrcamento(ticket),
+                                icon: const Icon(Icons.picture_as_pdf, size: 14),
+                                label: const Text('Orçamento'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: const Color(0xFF0A369D),
+                                  side: const BorderSide(color: Color(0xFFBFDBFE)),
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                  textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                                 ),
-                              );
-                            },
-                            icon: const Icon(Icons.note_add_outlined, size: 16),
-                            label: Text(ticket.status == "Pendente" ? "Iniciar Relatório" : "Continuar ATS"),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF0A369D),
-                              foregroundColor: Colors.white,
-                              elevation: 0,
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                            ),
-                          )
-                        else
-                          OutlinedButton.icon(
-                            onPressed: () {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Relatório ATS já finalizado e enviado.'),
-                                  backgroundColor: _emerald,
+                              ),
+                              const SizedBox(width: 8),
+                            ],
+                            if (ticket.status != "Concluído")
+                              ElevatedButton.icon(
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => const AtsReportScreen(),
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(Icons.note_add_outlined, size: 16),
+                                label: Text(ticket.status == "Pendente" ? "Iniciar Relatório" : "Continuar ATS"),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF0A369D),
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                 ),
-                              );
-                            },
-                            icon: const Icon(Icons.check, size: 16),
-                            label: const Text("Finalizado"),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: _emerald,
-                              side: const BorderSide(color: _emerald),
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                            ),
-                          ),
+                              )
+                            else
+                              OutlinedButton.icon(
+                                onPressed: () {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Relatório ATS já finalizado e enviado.'),
+                                      backgroundColor: _emerald,
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(Icons.check, size: 16),
+                                label: const Text("Finalizado"),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: _emerald,
+                                  side: const BorderSide(color: _emerald),
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                              ),
+                          ],
+                        ),
                       ],
                     ),
                   ],
@@ -790,6 +854,37 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
       onTap: () {},
     );
   }
+
+  Future<void> _abrirPdfOrcamento(Ticket ticket) async {
+    final mockChamado = Chamado(
+      id: ticket.id,
+      numeroAts: ticket.id.replaceAll('ATS-', ''),
+      razaoSocial: ticket.companyName,
+      modeloMaquina: ticket.machineModel,
+      defeitoRelatado: ticket.defeitoRelatado ?? 'Revisão geral',
+      endereco: ticket.address,
+      tokenUrl: 'mock-token',
+      status: ChamadoStatus.atribuido,
+      termosAceitos: true,
+      responsavelAceiteNome: 'Cliente Aprovador',
+      responsavelAceiteCargo: 'Gerente Operacional',
+      aceiteData: DateTime.now(),
+    );
+
+    final dummySignature = List<int>.generate(80, (i) => 255);
+    final pdfBytes = await OrcamentoPdfService.generatePdf(
+      chamado: mockChamado,
+      signatureBytes: Uint8List.fromList(dummySignature),
+      responsavelNome: mockChamado.responsavelAceiteNome!,
+      responsavelCargo: mockChamado.responsavelAceiteCargo!,
+    );
+
+    await Printing.layoutPdf(
+      onLayout: (_) => pdfBytes,
+      name: 'Orcamento_${ticket.id}.pdf',
+    );
+  }
 }
+
 
 

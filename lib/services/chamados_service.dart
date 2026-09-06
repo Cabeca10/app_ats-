@@ -1,0 +1,184 @@
+import 'dart:async';
+import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../models/chamado.dart';
+
+/// Serviço compartilhado para gerenciamento de chamados e sincronização entre Gerente e Técnico
+class ChamadosService {
+  static final ChamadosService instance = ChamadosService._internal();
+  ChamadosService._internal() {
+    _inicializarDados();
+  }
+
+  final ValueNotifier<List<Chamado>> chamadosNotifier = ValueNotifier<List<Chamado>>([]);
+
+  void _inicializarDados() {
+    // Lista inicial de demonstração com os diferentes estados operacionais
+    chamadosNotifier.value = [
+      Chamado(
+        id: 'c-01',
+        numeroAts: '014742',
+        razaoSocial: 'Metalúrgica Haas Joinville Ltda',
+        cnpj: '84.123.456/0001-99',
+        inscricaoEstadual: '254.987.123',
+        telefone: '(47) 3456-7890',
+        clienteEmail: 'manutencao@haasjoinville.com.br',
+        endereco: 'Rua das Indústrias, 1500 - Joinville/SC',
+        cidade: 'Joinville - SC',
+        fabricante: 'Pmach',
+        modeloMaquina: 'Centro de Usinagem CNC V-400',
+        numeroSerie: 'PM-2024-8841',
+        defeitoRelatado: 'Alarme 1042 no fuso principal. Vibração anormal em rotações superiores a 6000 RPM.',
+        tokenUrl: '8f7d9a12-4c3e-4e8b-a2f1-0987654321ab',
+        status: ChamadoStatus.aprovadoPendente,
+        taxaHorariaComercial: 306.00,
+        taxaHorariaExtra: 459.00,
+        taxaHorariaEspecial: 612.00,
+        taxaKm: 3.20,
+        kmEstimado: 35.0,
+        horaViagemEstimada: 1.0,
+        valorEstimadoTotal: 1980.00,
+        termosAceitos: true,
+        aceiteData: DateTime.now().subtract(const Duration(minutes: 42)),
+        responsavelAceiteNome: 'Eng. Roberto Mendes',
+        responsavelAceiteCargo: 'Gerente Industrial',
+        orcamentoPdfUrl: 'https://storage.supabase.co/orcamentos/pdfs/014742_aprovado.pdf',
+      ),
+      Chamado(
+        id: 'c-02',
+        numeroAts: '014743',
+        razaoSocial: 'Indústria Têxtil Catarinense S.A.',
+        cnpj: '12.987.654/0001-33',
+        telefone: '(47) 3322-1100',
+        clienteEmail: 'compras@textilcatarinense.com.br',
+        endereco: 'Av. Brasil, 450 - Blumenau/SC',
+        fabricante: 'Pmach',
+        modeloMaquina: 'Torno Mecânico Universal TM-500',
+        numeroSerie: 'TM-2022-1049',
+        defeitoRelatado: 'Folga excessiva no barramento e ruído no cabeçote engrenado.',
+        tokenUrl: '3b2a1c09-8d7e-6f5a-4b3c-2a1b0c9d8e7f',
+        status: ChamadoStatus.orcamentoEnviado,
+        taxaHorariaComercial: 306.00,
+        taxaHorariaExtra: 459.00,
+        taxaHorariaEspecial: 612.00,
+        taxaKm: 3.20,
+        kmEstimado: 120.0,
+        horaViagemEstimada: 2.0,
+      ),
+      Chamado(
+        id: 'c-03',
+        numeroAts: '014740',
+        razaoSocial: 'Metalúrgica Alfa S.A.',
+        cnpj: '45.678.901/0001-22',
+        telefone: '(47) 3433-2211',
+        clienteEmail: 'operacoes@metalurgicaalfa.com.br',
+        endereco: 'Av. Industrial, 1024 - Joinville/SC',
+        fabricante: 'Pmach',
+        modeloMaquina: 'Torno CNC Haas ST-20',
+        numeroSerie: 'ST-2023-5591',
+        defeitoRelatado: 'Vazamento de fluido refrigerante pela gaxeta do castelo.',
+        tokenUrl: '1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d',
+        status: ChamadoStatus.atribuido,
+        tecnicoId: 'tech-01',
+        tecnicoNome: 'Carlos Silva',
+        taxaHorariaComercial: 306.00,
+        taxaKm: 3.20,
+        termosAceitos: true,
+        aceiteData: DateTime.now().subtract(const Duration(days: 1)),
+        responsavelAceiteNome: 'Marcos Vinicius',
+        responsavelAceiteCargo: 'Supervisor de Produção',
+      ),
+    ];
+
+    _sincronizarComSupabase();
+  }
+
+  Future<void> _sincronizarComSupabase() async {
+    try {
+      final response = await Supabase.instance.client
+          .from('chamados')
+          .select()
+          .order('created_at', ascending: false);
+
+      if ((response as List).isNotEmpty) {
+        final lista = response.map((item) => Chamado.fromMap(item)).toList();
+        chamadosNotifier.value = lista;
+      }
+    } catch (_) {
+      // Mantém os dados da lista local caso sem conexão remota
+    }
+  }
+
+  /// Atribui o técnico ao chamado, alterando o status para 'atribuido'
+  Future<bool> atribuirTecnico({
+    required String chamadoId,
+    required String tecnicoNome,
+    String? tecnicoId,
+  }) async {
+    try {
+      // 1. Atualiza no Supabase remoto
+      await Supabase.instance.client.from('chamados').update({
+        'status': ChamadoStatus.atribuido,
+        'tecnico_nome': tecnicoNome,
+        'tecnico_id': tecnicoId,
+        'updated_at': DateTime.now().toIso8601String(),
+      }).eq('id', chamadoId);
+    } catch (_) {
+      // Ignora se for ambiente mock
+    }
+
+    // 2. Atualiza no estado reativo local
+    final listaAtual = List<Chamado>.from(chamadosNotifier.value);
+    final index = listaAtual.indexWhere((c) => c.id == chamadoId || c.numeroAts == chamadoId);
+
+    if (index != -1) {
+      listaAtual[index] = listaAtual[index].copyWith(
+        status: ChamadoStatus.atribuido,
+        tecnicoNome: tecnicoNome,
+        tecnicoId: tecnicoId ?? 'tech-${tecnicoNome.hashCode}',
+        updatedAt: DateTime.now(),
+      );
+      chamadosNotifier.value = listaAtual;
+      return true;
+    }
+
+    return false;
+  }
+
+  /// Adiciona um novo chamado ao fluxo
+  Future<Chamado> criarNovoChamado({
+    required String razaoSocial,
+    required String modeloMaquina,
+    required String defeitoRelatado,
+    required String endereco,
+    String? cnpj,
+    String? telefone,
+    String? clienteEmail,
+  }) async {
+    final novoNumero = '0147${44 + chamadosNotifier.value.length}';
+    final token = 'tok-${DateTime.now().millisecondsSinceEpoch}';
+    final novo = Chamado(
+      id: 'chamado-${DateTime.now().millisecondsSinceEpoch}',
+      numeroAts: novoNumero,
+      razaoSocial: razaoSocial,
+      modeloMaquina: modeloMaquina,
+      defeitoRelatado: defeitoRelatado,
+      endereco: endereco,
+      cnpj: cnpj,
+      telefone: telefone,
+      clienteEmail: clienteEmail,
+      tokenUrl: token,
+      status: ChamadoStatus.orcamentoEnviado,
+    );
+
+    try {
+      await Supabase.instance.client.from('chamados').insert(novo.toMap());
+    } catch (_) {}
+
+    final lista = List<Chamado>.from(chamadosNotifier.value);
+    lista.insert(0, novo);
+    chamadosNotifier.value = lista;
+
+    return novo;
+  }
+}

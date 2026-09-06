@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/tecnico/tecnico_dashboard.dart';
 import 'screens/gerente/gerente_dashboard.dart';
+import 'screens/cliente/orcamento_client_screen.dart';
 
 class AppAuthState {
   static String selectedRole = 'Técnico'; // 'Técnico' or 'Gerente'
@@ -40,10 +41,30 @@ class MyApp extends StatelessWidget {
         useMaterial3: true,
         fontFamily: 'Roboto',
       ),
-      home: const AuthWrapper(),
+      onGenerateRoute: (settings) {
+        final uri = Uri.parse(settings.name ?? '/');
+        // Suporte a rota pública: /orcamento/:token ou /orcamento?token=...
+        if (uri.pathSegments.isNotEmpty && uri.pathSegments.first == 'orcamento') {
+          String token = '8f7d9a12-4c3e-4e8b-a2f1-0987654321ab';
+          if (uri.pathSegments.length > 1 && uri.pathSegments[1].isNotEmpty) {
+            token = uri.pathSegments[1];
+          } else if (uri.queryParameters.containsKey('token')) {
+            token = uri.queryParameters['token']!;
+          }
+          return MaterialPageRoute(
+            builder: (_) => OrcamentoClientScreen(token: token),
+            settings: settings,
+          );
+        }
+        return MaterialPageRoute(
+          builder: (_) => const AuthWrapper(),
+          settings: settings,
+        );
+      },
     );
   }
 }
+
 
 class AuthWrapper extends StatefulWidget {
   const AuthWrapper({super.key});
