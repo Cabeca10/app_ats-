@@ -2,6 +2,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'screens/auth/login_screen.dart';
+import 'screens/tecnico/tecnico_dashboard.dart';
+import 'screens/gerente/gerente_dashboard.dart';
+
+class AppAuthState {
+  static String selectedRole = 'Técnico'; // 'Técnico' or 'Gerente'
+  static bool bypassAuth = false;
+}
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,7 +29,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Pmach ATS Serviços',
+      title: 'ATS Serviços - Equipamentos e Peças Ltda',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
@@ -80,10 +87,22 @@ class _AuthWrapperState extends State<AuthWrapper> {
       );
     }
 
-    if (_session != null) {
-      return const AtsReportScreen();
+    if (_session != null || AppAuthState.bypassAuth) {
+      if (AppAuthState.selectedRole == 'Gerente') {
+        return GerenteDashboard(onLogout: () {
+          setState(() {
+            AppAuthState.bypassAuth = false;
+          });
+        });
+      } else {
+        return TecnicoDashboard(onLogout: () {
+          setState(() {
+            AppAuthState.bypassAuth = false;
+          });
+        });
+      }
     } else {
-      return const LoginScreen();
+      return LoginScreen(onBypass: () => setState(() {}));
     }
   }
 }
@@ -295,19 +314,43 @@ class _AtsReportScreenState extends State<AtsReportScreen> {
         scrolledUnderElevation: 0,
         title: Row(
           children: [
-            const Icon(
-              Icons.precision_manufacturing,
-              color: Color(0xFF0A369D),
-              size: 28,
-            ),
-            const SizedBox(width: 8),
-            const Text(
-              'IndustrialOps',
-              style: TextStyle(
-                color: Color(0xFF0C1A30),
-                fontWeight: FontWeight.bold,
-                fontSize: 18,
+            Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.shade200),
               ),
+              child: Image.asset(
+                'assets/images/logo_pmach.png',
+                height: 32,
+                width: 32,
+                fit: BoxFit.contain,
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'ATS Serviços',
+                  style: TextStyle(
+                    color: Color(0xFF0C1A30),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                    height: 1.1,
+                  ),
+                ),
+                Text(
+                  'Equipamentos e Peças Ltda',
+                  style: TextStyle(
+                    color: Color(0xFF64748B),
+                    fontWeight: FontWeight.w500,
+                    fontSize: 10,
+                  ),
+                ),
+              ],
             ),
             const Spacer(),
             Column(

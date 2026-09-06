@@ -2,9 +2,11 @@
 
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../main.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  final VoidCallback? onBypass;
+  const LoginScreen({super.key, this.onBypass});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -184,40 +186,50 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      // Animated / Neon themed Icon Header
+                      // Logo Header with Modern Glow
                       Container(
-                        padding: const EdgeInsets.all(18),
+                        padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: const Color(0xFF0A369D).withOpacity(0.2),
-                          border: Border.all(
-                            color: const Color(0xFF4A90E2).withOpacity(0.4),
-                            width: 1.5,
-                          ),
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(20),
                           boxShadow: [
                             BoxShadow(
-                              color: const Color(0xFF4A90E2).withOpacity(0.25),
-                              blurRadius: 20,
+                              color: const Color(0xFF4A90E2).withOpacity(0.35),
+                              blurRadius: 24,
                               spreadRadius: 2,
                             ),
                           ],
                         ),
-                        child: const Icon(
-                          Icons.precision_manufacturing,
-                          size: 48,
-                          color: Color(0xFF4A90E2),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.asset(
+                            'assets/images/logo_pmach.png',
+                            height: 72,
+                            width: 72,
+                            fit: BoxFit.contain,
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 20),
                       
                       // Title Text
                       const Text(
-                        'IndustrialOps',
+                        'ATS Serviços',
                         style: TextStyle(
                           fontSize: 28,
                           fontWeight: FontWeight.bold,
                           color: Colors.white,
                           letterSpacing: 0.5,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Equipamentos e Peças Ltda',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          color: Color(0xFF93C5FD),
+                          letterSpacing: 0.3,
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -256,6 +268,83 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
+                              // Role Selector Segmented Control
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.04),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: Colors.white.withOpacity(0.1)),
+                                ),
+                                padding: const EdgeInsets.all(4),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: GestureDetector(
+                                        onTap: () {
+                                          setState(() {
+                                            AppAuthState.selectedRole = 'Técnico';
+                                          });
+                                        },
+                                        child: AnimatedContainer(
+                                          duration: const Duration(milliseconds: 250),
+                                          padding: const EdgeInsets.symmetric(vertical: 12),
+                                          decoration: BoxDecoration(
+                                            color: AppAuthState.selectedRole == 'Técnico'
+                                                ? const Color(0xFF0A369D)
+                                                : Colors.transparent,
+                                            borderRadius: BorderRadius.circular(10),
+                                          ),
+                                          child: Center(
+                                            child: Text(
+                                              'Técnico',
+                                              style: TextStyle(
+                                                color: AppAuthState.selectedRole == 'Técnico'
+                                                    ? Colors.white
+                                                    : Colors.grey.shade400,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 14,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: GestureDetector(
+                                        onTap: () {
+                                          setState(() {
+                                            AppAuthState.selectedRole = 'Gerente';
+                                          });
+                                        },
+                                        child: AnimatedContainer(
+                                          duration: const Duration(milliseconds: 250),
+                                          padding: const EdgeInsets.symmetric(vertical: 12),
+                                          decoration: BoxDecoration(
+                                            color: AppAuthState.selectedRole == 'Gerente'
+                                                ? const Color(0xFF0A369D)
+                                                : Colors.transparent,
+                                            borderRadius: BorderRadius.circular(10),
+                                          ),
+                                          child: Center(
+                                            child: Text(
+                                              'Gerente',
+                                              style: TextStyle(
+                                                color: AppAuthState.selectedRole == 'Gerente'
+                                                    ? Colors.white
+                                                    : Colors.grey.shade400,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 14,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 24),
+
                               // Email Input
                               TextFormField(
                                 controller: _emailController,
@@ -401,6 +490,30 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                                           fontWeight: FontWeight.bold,
                                         ),
                                       ),
+                              ),
+                              const SizedBox(height: 12),
+                              OutlinedButton(
+                                onPressed: () {
+                                  AppAuthState.bypassAuth = true;
+                                  if (widget.onBypass != null) {
+                                    widget.onBypass!();
+                                  }
+                                },
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  side: const BorderSide(color: Color(0xFF4A90E2), width: 1),
+                                  foregroundColor: const Color(0xFF4A90E2),
+                                ),
+                                child: const Text(
+                                  'ir teste',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
                               ),
                             ],
                           ),
