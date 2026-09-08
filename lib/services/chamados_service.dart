@@ -235,4 +235,90 @@ class ChamadosService {
 
     return novo;
   }
+
+  /// Finaliza o chamado no Supabase e no estado reativo, atualizando o status para 'finalizado' e salvando a assinatura
+  Future<bool> finalizarChamado({
+    required String numeroAts,
+    String? chamadoId,
+    required String assinaturaUrl,
+    String? responsavelNome,
+    String? defeitoRelatado,
+    String? razaoSocial,
+    String? endereco,
+    String? modeloMaquina,
+    String? numeroSerie,
+  }) async {
+    final agora = DateTime.now();
+
+    final updateData = <String, dynamic>{
+      'status': ChamadoStatus.finalizado,
+      'assinatura_url': assinaturaUrl,
+      'termos_aceitos': true,
+      'aceite_data': agora.toIso8601String(),
+      'updated_at': agora.toIso8601String(),
+    };
+
+    if (responsavelNome != null && responsavelNome.trim().isNotEmpty) {
+      updateData['responsavel_aceite_nome'] = responsavelNome.trim();
+    }
+    if (defeitoRelatado != null && defeitoRelatado.trim().isNotEmpty) {
+      updateData['defeito_relatado'] = defeitoRelatado.trim();
+    }
+    if (razaoSocial != null && razaoSocial.trim().isNotEmpty) {
+      updateData['razao_social'] = razaoSocial.trim();
+    }
+    if (endereco != null && endereco.trim().isNotEmpty) {
+      updateData['endereco'] = endereco.trim();
+    }
+    if (modeloMaquina != null && modeloMaquina.trim().isNotEmpty) {
+      updateData['modelo_maquina'] = modeloMaquina.trim();
+    }
+    if (numeroSerie != null && numeroSerie.trim().isNotEmpty) {
+      updateData['numero_serie'] = numeroSerie.trim();
+    }
+
+    try {
+      if (chamadoId != null && chamadoId.isNotEmpty && !chamadoId.startsWith('c-')) {
+        await Supabase.instance.client
+            .from('chamados')
+            .update(updateData)
+            .eq('id', chamadoId);
+      } else {
+        await Supabase.instance.client
+            .from('chamados')
+            .update(updateData)
+            .eq('numero_ats', numeroAts.replaceAll('ATS-', '').trim());
+      }
+    } catch (e) {
+      debugPrint('Aviso ao sincronizar finalização no Supabase: $e');
+    }
+
+    // Atualiza estado local reativo
+    final cleanAts = numeroAts.replaceAll('ATS-', '').trim();
+    final listaAtual = List<Chamado>.from(chamadosNotifier.value);
+    final index = listaAtual.indexWhere((c) =>
+        (chamadoId != null && c.id == chamadoId) ||
+        c.numeroAts == cleanAts ||
+        c.numeroAts == numeroAts);
+
+    if (index != -1) {
+      listaAtual[index] = listaAtual[index].copyWith(
+        status: ChamadoStatus.finalizado,
+        assinaturaUrl: assinaturaUrl,
+        responsavelAceiteNome: responsavelNome ?? listaAtual[index].responsavelAceiteNome,
+        defeitoRelatado: defeitoRelatado ?? listaAtual[index].defeitoRelatado,
+        razaoSocial: razaoSocial ?? listaAtual[index].razaoSocial,
+        endereco: endereco ?? listaAtual[index].endereco,
+        modeloMaquina: modeloMaquina ?? listaAtual[index].modeloMaquina,
+        numeroSerie: numeroSerie ?? listaAtual[index].numeroSerie,
+        termosAceitos: true,
+        aceiteData: agora,
+        updatedAt: agora,
+      );
+      chamadosNotifier.value = listaAtual;
+      return true;
+    }
+
+    return false;
+  }
 }

@@ -2,7 +2,8 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../main.dart'; // Import to access AtsReportScreen
+import '../../main.dart';
+import 'ats_form_screen.dart';
 import '../../models/chamado.dart';
 import '../../services/chamados_service.dart';
 import '../../services/orcamento_pdf_service.dart';
@@ -12,6 +13,8 @@ const Color _emeraldDark = Color(0xFF065F46);
 
 class Ticket {
   final String id;
+  final String? chamadoId;
+  final String? numeroAts;
   final String companyName;
   final String machineModel;
   final String scheduledTime;
@@ -23,6 +26,8 @@ class Ticket {
 
   Ticket({
     required this.id,
+    this.chamadoId,
+    this.numeroAts,
     required this.companyName,
     required this.machineModel,
     required this.scheduledTime,
@@ -306,14 +311,21 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
             builder: (context, chamados, _) {
               // Converte os chamados atribuídos pelo gerente em tickets para o técnico
               final chamadosAtribuidos = chamados
-                  .where((c) => c.status == ChamadoStatus.atribuido)
+                  .where((c) =>
+                      c.status == ChamadoStatus.atribuido ||
+                      c.status == ChamadoStatus.emAtendimento ||
+                      c.status == ChamadoStatus.finalizado)
                   .map((c) => Ticket(
                         id: 'ATS-${c.numeroAts}',
+                        chamadoId: c.id,
+                        numeroAts: c.numeroAts,
                         companyName: c.razaoSocial,
                         machineModel: '${c.fabricante ?? "Pmach"} ${c.modeloMaquina ?? ""}',
                         scheduledTime: 'Prioritário',
                         priority: 'Alta',
-                        status: 'Pendente',
+                        status: c.status == ChamadoStatus.finalizado
+                            ? 'Concluído'
+                            : (c.status == ChamadoStatus.emAtendimento ? 'Em Andamento' : 'Pendente'),
                         address: c.endereco ?? 'Joinville / Região',
                         defeitoRelatado: c.defeitoRelatado,
                         orcamentoPdfUrl: c.orcamentoPdfUrl,
@@ -335,6 +347,36 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
         ),
       ],
     );
+  }
+
+  Future<void> _abrirAtsForm(Ticket ticket) async {
+    final res = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AtsFormScreen(ticket: ticket),
+      ),
+    );
+    if (res == true && mounted) {
+      setState(() {
+        final idx = _tickets.indexWhere((t) => t.id == ticket.id);
+        if (idx != -1) {
+          final old = _tickets[idx];
+          _tickets[idx] = Ticket(
+            id: old.id,
+            chamadoId: old.chamadoId,
+            numeroAts: old.numeroAts,
+            companyName: old.companyName,
+            machineModel: old.machineModel,
+            scheduledTime: old.scheduledTime,
+            priority: old.priority,
+            status: 'Concluído',
+            address: old.address,
+            defeitoRelatado: old.defeitoRelatado,
+            orcamentoPdfUrl: old.orcamentoPdfUrl,
+          );
+        }
+      });
+    }
   }
 
   Widget _buildTicketCard(Ticket ticket) {
@@ -382,227 +424,229 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
           ),
         ],
       ),
-      child: IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Left priority color bar strip
-            Container(
-              width: 6,
-              decoration: BoxDecoration(
-                color: priorityColor,
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(16),
-                  bottomLeft: Radius.circular(16),
-                ),
-              ),
-            ),
-            const SizedBox(width: 14),
-
-            // Content body of the card
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 8.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Header row: ID and Priority
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          ticket.id,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.grey.shade500,
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: priorityColor.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Text(
-                            ticket.priority,
-                            style: TextStyle(
-                              color: priorityColor,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-
-                    // Client details
-                    Text(
-                      ticket.companyName,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF0C1A30),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () => _abrirAtsForm(ticket),
+            child: IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Left priority color bar strip
+                  Container(
+                    width: 6,
+                    decoration: BoxDecoration(
+                      color: priorityColor,
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(16),
+                        bottomLeft: Radius.circular(16),
                       ),
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      ticket.machineModel,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.grey.shade600,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    if (ticket.defeitoRelatado != null) ...[
-                      const SizedBox(height: 6),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF8FAFC),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: Colors.grey.shade200),
-                        ),
-                        child: Text(
-                          'Defeito: ${ticket.defeitoRelatado}',
-                          style: const TextStyle(fontSize: 12, color: Color(0xFF334155)),
-                        ),
-                      ),
-                    ],
-                    const Divider(height: 20, thickness: 0.5),
+                  ),
+                  const SizedBox(width: 14),
 
-                    // Technical meta details: Hour and Location
-                    Row(
-                      children: [
-                        Icon(Icons.access_time_filled, size: 14, color: Colors.grey.shade400),
-                        const SizedBox(width: 6),
-                        Text(
-                          ticket.scheduledTime,
-                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Row(
+                  // Content body of the card
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 8.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Header row: ID and Priority
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Icon(Icons.location_on, size: 14, color: Colors.grey.shade400),
-                              const SizedBox(width: 4),
-                              Expanded(
+                              Text(
+                                ticket.id,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.grey.shade500,
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: priorityColor.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
                                 child: Text(
-                                  ticket.address,
+                                  ticket.priority,
                                   style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey.shade600,
-                                    overflow: TextOverflow.ellipsis,
+                                    color: priorityColor,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
                                   ),
                                 ),
                               ),
                             ],
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
+                          const SizedBox(height: 8),
 
-                    // Footer actions
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        // Status Badge
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: statusColor.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(20),
+                          // Client details
+                          Text(
+                            ticket.companyName,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF0C1A30),
+                            ),
                           ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                width: 6,
-                                height: 6,
-                                decoration: BoxDecoration(shape: BoxShape.circle, color: statusColor),
+                          const SizedBox(height: 4),
+                          Text(
+                            ticket.machineModel,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey.shade600,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          if (ticket.defeitoRelatado != null) ...[
+                            const SizedBox(height: 6),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF8FAFC),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: Colors.grey.shade200),
                               ),
+                              child: Text(
+                                'Defeito: ${ticket.defeitoRelatado}',
+                                style: const TextStyle(fontSize: 12, color: Color(0xFF334155)),
+                              ),
+                            ),
+                          ],
+                          const Divider(height: 20, thickness: 0.5),
+
+                          // Technical meta details: Hour and Location
+                          Row(
+                            children: [
+                              Icon(Icons.access_time_filled, size: 14, color: Colors.grey.shade400),
                               const SizedBox(width: 6),
                               Text(
-                                ticket.status,
-                                style: TextStyle(
-                                  color: statusColor,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
+                                ticket.scheduledTime,
+                                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.location_on, size: 14, color: Colors.grey.shade400),
+                                    const SizedBox(width: 4),
+                                    Expanded(
+                                      child: Text(
+                                        ticket.address,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade600,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ],
                           ),
-                        ),
+                          const SizedBox(height: 16),
 
-                        // Action Button
-                        Row(
-                          children: [
-                            if (ticket.defeitoRelatado != null || ticket.orcamentoPdfUrl != null) ...[
-                              OutlinedButton.icon(
-                                onPressed: () => _abrirPdfOrcamento(ticket),
-                                icon: const Icon(Icons.picture_as_pdf, size: 14),
-                                label: const Text('Orçamento'),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: const Color(0xFF0A369D),
-                                  side: const BorderSide(color: Color(0xFFBFDBFE)),
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                  textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                          // Footer actions
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              // Status Badge
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: statusColor.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Container(
+                                      width: 6,
+                                      height: 6,
+                                      decoration: BoxDecoration(shape: BoxShape.circle, color: statusColor),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      ticket.status,
+                                      style: TextStyle(
+                                        color: statusColor,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              const SizedBox(width: 8),
+
+                              // Action Button
+                              Row(
+                                children: [
+                                  if (ticket.defeitoRelatado != null || ticket.orcamentoPdfUrl != null) ...[
+                                    OutlinedButton.icon(
+                                      onPressed: () => _abrirPdfOrcamento(ticket),
+                                      icon: const Icon(Icons.picture_as_pdf, size: 14),
+                                      label: const Text('Orçamento'),
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: const Color(0xFF0A369D),
+                                        side: const BorderSide(color: Color(0xFFBFDBFE)),
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                        textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                  ],
+                                  if (ticket.status != "Concluído")
+                                    ElevatedButton.icon(
+                                      onPressed: () => _abrirAtsForm(ticket),
+                                      icon: const Icon(Icons.note_add_outlined, size: 16),
+                                      label: Text(ticket.status == "Pendente" ? "Iniciar Relatório" : "Continuar ATS"),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFF0A369D),
+                                        foregroundColor: Colors.white,
+                                        elevation: 0,
+                                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                      ),
+                                    )
+                                  else
+                                    OutlinedButton.icon(
+                                      onPressed: () {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(
+                                            content: Text('Relatório ATS já finalizado e enviado.'),
+                                            backgroundColor: _emerald,
+                                          ),
+                                        );
+                                      },
+                                      icon: const Icon(Icons.check, size: 16),
+                                      label: const Text("Finalizado"),
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: _emerald,
+                                        side: const BorderSide(color: _emerald),
+                                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                      ),
+                                    ),
+                                ],
+                              ),
                             ],
-                            if (ticket.status != "Concluído")
-                              ElevatedButton.icon(
-                                onPressed: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) => const AtsReportScreen(),
-                                    ),
-                                  );
-                                },
-                                icon: const Icon(Icons.note_add_outlined, size: 16),
-                                label: Text(ticket.status == "Pendente" ? "Iniciar Relatório" : "Continuar ATS"),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF0A369D),
-                                  foregroundColor: Colors.white,
-                                  elevation: 0,
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                ),
-                              )
-                            else
-                              OutlinedButton.icon(
-                                onPressed: () {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('Relatório ATS já finalizado e enviado.'),
-                                      backgroundColor: _emerald,
-                                    ),
-                                  );
-                                },
-                                icon: const Icon(Icons.check, size: 16),
-                                label: const Text("Finalizado"),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: _emerald,
-                                  side: const BorderSide(color: _emerald),
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ],
+                          ),
+                        ],
+                      ),
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
               ),
             ),
-            const SizedBox(width: 8),
-          ],
+          ),
         ),
       ),
     );
