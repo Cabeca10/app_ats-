@@ -292,11 +292,10 @@ class OrcamentoPdfService {
                 ),
                 pw.SizedBox(height: 4),
                 pw.Text(
-                  '• A aprovação deste documento autoriza expressamente o deslocamento e a intervenção técnica da equipe ATS Serviços.\n'
-                  '• As peças eventualmente necessárias para o reparo serão orçadas e informadas separadamente para autorização prévia.\n'
-                  '• O faturamento será emitido com base no Relatório Técnico de Atendimento (ATS) assinado na conclusão dos trabalhos.\n'
-                  '• Garantia de 90 (noventa) dias sobre os serviços executados conforme legislação vigente.',
-                  style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700, lineSpacing: 1.5),
+                  '1. Da solicitação: Necessário preenchimento completo do orçamento. Atendimento agendado após aprovação e análise de crédito.\n'
+                  '2. Dos custos: Cobrança de deslocamento a partir da residência do técnico (1 técnico Pmach). Movimentação de cargas pesadas (ponte, talha, empilhadeira) por conta do cliente. Despesas de pernoite, estadia e alimentação com ônus ao cliente. Havendo necessidade de troca de peça(s), orçamento será enviado ao término e horas de diagnóstico cobradas normalmente.\n'
+                  '3. Da cobrança: Demonstrativo enviado pelo financeiro após fechamento da ATS (análise/contestação em 01 dia útil). NF e boleto com prazo de 10 dias.',
+                  style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey700, lineSpacing: 1.3),
                 ),
               ],
             ),
@@ -447,7 +446,12 @@ class OrcamentoPdfService {
         'cnpj': chamado.cnpj,
         'inscricao_estadual': chamado.inscricaoEstadual,
         'endereco': chamado.endereco,
+        'telefone': chamado.telefone,
         'cidade': chamado.cidade,
+        'fabricante': chamado.fabricante,
+        'modelo_maquina': chamado.modeloMaquina,
+        'numero_serie': chamado.numeroSerie,
+        'defeito_relatado': chamado.defeitoRelatado,
         'termos_aceitos': true,
         'aceite_data': agora.toIso8601String(),
         'responsavel_aceite_nome': responsavelNome,

@@ -23,10 +23,15 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
   final _currencyFormat = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
 
   late final SignatureController _signatureController;
+  final _fabricanteController = TextEditingController();
+  final _modeloController = TextEditingController();
+  final _numeroSerieController = TextEditingController();
+  final _defeitoController = TextEditingController();
   final _razaoSocialController = TextEditingController();
   final _cnpjController = TextEditingController();
   final _inscricaoEstadualController = TextEditingController();
   final _enderecoController = TextEditingController();
+  final _telefoneController = TextEditingController();
   final _nomeController = TextEditingController();
   final _cargoController = TextEditingController();
 
@@ -52,10 +57,15 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
   @override
   void dispose() {
     _signatureController.dispose();
+    _fabricanteController.dispose();
+    _modeloController.dispose();
+    _numeroSerieController.dispose();
+    _defeitoController.dispose();
     _razaoSocialController.dispose();
     _cnpjController.dispose();
     _inscricaoEstadualController.dispose();
     _enderecoController.dispose();
+    _telefoneController.dispose();
     _nomeController.dispose();
     _cargoController.dispose();
     super.dispose();
@@ -85,27 +95,33 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
         _chamado = _criarChamadoMock(widget.token);
       }
 
-      if (_chamado != null) {
-        _razaoSocialController.text = _chamado!.razaoSocial;
-        _cnpjController.text = _chamado!.cnpj ?? '';
-        _inscricaoEstadualController.text = _chamado!.inscricaoEstadual ?? '';
-        _enderecoController.text = _chamado!.endereco ?? '';
-        if (_chamado!.responsavelAceiteNome != null) {
-          _nomeController.text = _chamado!.responsavelAceiteNome!;
-        }
-        if (_chamado!.responsavelAceiteCargo != null) {
-          _cargoController.text = _chamado!.responsavelAceiteCargo!;
-        }
-      }
+      // Os campos de Equipamento e Dados Cadastrais iniciam completamente EM BRANCO (controladores vazios),
+      // pois é o próprio cliente quem deve preencher suas informações fiscais e do equipamento antes de assinar.
+      _fabricanteController.text = '';
+      _modeloController.text = '';
+      _numeroSerieController.text = '';
+      _defeitoController.text = '';
+      _razaoSocialController.text = '';
+      _cnpjController.text = '';
+      _inscricaoEstadualController.text = '';
+      _enderecoController.text = '';
+      _telefoneController.text = '';
+      _nomeController.text = '';
+      _cargoController.text = '';
     } catch (_) {
-      // Fallback gracioso com dados de demonstração
+      // Fallback gracioso caso haja erro de conexão
       _chamado = _criarChamadoMock(widget.token);
-      if (_chamado != null) {
-        _razaoSocialController.text = _chamado!.razaoSocial;
-        _cnpjController.text = _chamado!.cnpj ?? '';
-        _inscricaoEstadualController.text = _chamado!.inscricaoEstadual ?? '';
-        _enderecoController.text = _chamado!.endereco ?? '';
-      }
+      _fabricanteController.text = '';
+      _modeloController.text = '';
+      _numeroSerieController.text = '';
+      _defeitoController.text = '';
+      _razaoSocialController.text = '';
+      _cnpjController.text = '';
+      _inscricaoEstadualController.text = '';
+      _enderecoController.text = '';
+      _telefoneController.text = '';
+      _nomeController.text = '';
+      _cargoController.text = '';
     } finally {
       if (mounted) {
         setState(() {
@@ -119,17 +135,17 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
     return Chamado(
       id: 'mock-uuid-001',
       numeroAts: '014742',
-      razaoSocial: 'Metalúrgica Haas Joinville Ltda',
-      cnpj: '84.123.456/0001-99',
-      inscricaoEstadual: '254.987.123',
-      telefone: '(47) 3456-7890',
-      clienteEmail: 'manutencao@haasjoinville.com.br',
-      endereco: 'Rua das Indústrias, 1500 - Distrito Industrial - Joinville/SC',
-      cidade: 'Joinville - SC',
-      fabricante: 'Pmach',
-      modeloMaquina: 'Centro de Usinagem CNC V-400',
-      numeroSerie: 'PM-2024-8841',
-      defeitoRelatado: 'Alarme 1042 no fuso principal durante usinagem em alta rotação. Vibração anormal identificada.',
+      razaoSocial: '',
+      cnpj: null,
+      inscricaoEstadual: null,
+      telefone: null,
+      clienteEmail: null,
+      endereco: null,
+      cidade: null,
+      fabricante: '',
+      modeloMaquina: '',
+      numeroSerie: '',
+      defeitoRelatado: '',
       tokenUrl: token,
       status: ChamadoStatus.orcamentoEnviado,
       taxaHorariaComercial: 306.00,
@@ -163,6 +179,11 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
       return;
     }
 
+    if (_telefoneController.text.trim().isEmpty) {
+      _mostrarAlerta('Informe o Telefone / WhatsApp da empresa.');
+      return;
+    }
+
     if (!_termosAceitos) {
       _mostrarAlerta('Por favor, confirme o aceite dos termos de atendimento.');
       return;
@@ -188,19 +209,29 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
         throw Exception('Erro ao capturar assinatura.');
       }
 
+      final fabricante = _fabricanteController.text.trim();
+      final modelo = _modeloController.text.trim();
+      final serie = _numeroSerieController.text.trim();
+      final defeito = _defeitoController.text.trim();
       final razao = _razaoSocialController.text.trim();
       final cnpj = _cnpjController.text.trim();
       final ie = _inscricaoEstadualController.text.trim();
       final end = _enderecoController.text.trim();
+      final telefone = _telefoneController.text.trim();
       final nome = _nomeController.text.trim();
       final cargo = _cargoController.text.trim().isEmpty ? 'Responsável Autorizado' : _cargoController.text.trim();
 
       // Atualiza o chamado em memória com os dados preenchidos pelo cliente
       _chamado = _chamado!.copyWith(
+        fabricante: fabricante.isNotEmpty ? fabricante : _chamado!.fabricante,
+        modeloMaquina: modelo.isNotEmpty ? modelo : _chamado!.modeloMaquina,
+        numeroSerie: serie.isNotEmpty ? serie : _chamado!.numeroSerie,
+        defeitoRelatado: defeito.isNotEmpty ? defeito : _chamado!.defeitoRelatado,
         razaoSocial: razao,
         cnpj: cnpj,
         inscricaoEstadual: ie,
         endereco: end,
+        telefone: telefone,
         responsavelAceiteNome: nome,
         responsavelAceiteCargo: cargo,
         termosAceitos: true,
@@ -415,65 +446,37 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
           ),
         ],
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEFF6FF),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: const Text(
-                    'PORTAL PÚBLICO DO CLIENTE',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF1E40AF),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Orçamento de Assistência Técnica',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF0F172A),
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Revise as condições operacionais e assine eletronicamente abaixo.',
-                  style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-                ),
-              ],
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFFEFF6FF),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: const Text(
+              'PORTAL PÚBLICO DO CLIENTE',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF1E40AF),
+              ),
             ),
           ),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF8FAFC),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.grey.shade300),
+          const SizedBox(height: 8),
+          const Text(
+            'Orçamento de Assistência Técnica',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF0F172A),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                const Text(
-                  'Nº ATS / O.S.',
-                  style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold),
-                ),
-                Text(
-                  _chamado?.numeroAts ?? '---',
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0A369D)),
-                ),
-              ],
-            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Revise as condições operacionais e assine eletronicamente abaixo.',
+            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
           ),
         ],
       ),
@@ -485,26 +488,96 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
       title: '1. Dados do Equipamento & Sintoma Relatado',
       icon: Icons.precision_manufacturing_outlined,
       children: [
-        _buildInfoRow('Fabricante:', _chamado?.fabricante ?? 'Pmach'),
-        _buildInfoRow('Modelo:', _chamado?.modeloMaquina ?? '---'),
-        _buildInfoRow('Nº de Série:', _chamado?.numeroSerie ?? '---'),
-        const Divider(height: 18),
-        const Text(
-          'Defeito / Ocorrência Relatada:',
-          style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF475569)),
-        ),
-        const SizedBox(height: 4),
         Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: const Color(0xFFF8FAFC),
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: Colors.grey.shade200),
+            color: const Color(0xFFEFF6FF),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFFBFDBFE)),
           ),
-          child: Text(
-            _chamado?.defeitoRelatado ?? 'Revisão técnica preventiva e corretiva.',
-            style: const TextStyle(fontSize: 13, color: Color(0xFF1E293B)),
+          child: const Row(
+            children: [
+              Icon(Icons.info_outline, size: 18, color: Color(0xFF1E40AF)),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Informe os dados da máquina que necessita de atendimento técnico e relate o defeito.',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF1E40AF), fontWeight: FontWeight.w500),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+
+        // Fabricante e Modelo
+        Row(
+          children: [
+            Expanded(
+              flex: 2,
+              child: TextFormField(
+                controller: _fabricanteController,
+                decoration: InputDecoration(
+                  labelText: 'Fabricante',
+                  hintText: 'Ex: Pmach, Haas, Romi',
+                  prefixIcon: const Icon(Icons.precision_manufacturing_outlined, size: 18),
+                  filled: true,
+                  fillColor: const Color(0xFFF8FAFC),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 3,
+              child: TextFormField(
+                controller: _modeloController,
+                decoration: InputDecoration(
+                  labelText: 'Modelo da Máquina',
+                  hintText: 'Ex: Torno CNC ST-20',
+                  prefixIcon: const Icon(Icons.build_outlined, size: 18),
+                  filled: true,
+                  fillColor: const Color(0xFFF8FAFC),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+
+        // Nº de Série
+        TextFormField(
+          controller: _numeroSerieController,
+          decoration: InputDecoration(
+            labelText: 'Nº de Série (se houver)',
+            hintText: 'Ex: SN-2024-8841',
+            prefixIcon: const Icon(Icons.tag, size: 18),
+            filled: true,
+            fillColor: const Color(0xFFF8FAFC),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        // Defeito / Ocorrência Relatada (Editável)
+        TextFormField(
+          controller: _defeitoController,
+          maxLines: 3,
+          decoration: InputDecoration(
+            labelText: 'Defeito / Ocorrência Relatada',
+            hintText: 'Descreva sucintamente a anomalia, ruído ou serviço solicitado...',
+            prefixIcon: const Padding(
+              padding: EdgeInsets.only(bottom: 40),
+              child: Icon(Icons.report_problem_outlined, size: 18),
+            ),
+            filled: true,
+            fillColor: const Color(0xFFF8FAFC),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            contentPadding: const EdgeInsets.all(12),
           ),
         ),
       ],
@@ -529,7 +602,7 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
               SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Por favor, preencha ou confirme os dados cadastrais da sua empresa para emissão da O.S. e faturamento.',
+                  'Por favor, preencha as informações cadastrais e fiscais da sua empresa para emissão da O.S. e faturamento antes de assinar.',
                   style: TextStyle(fontSize: 12, color: Color(0xFF1E40AF), fontWeight: FontWeight.w500),
                 ),
               ),
@@ -560,6 +633,7 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
               flex: 3,
               child: TextFormField(
                 controller: _cnpjController,
+                keyboardType: TextInputType.number,
                 decoration: InputDecoration(
                   labelText: 'CNPJ *',
                   hintText: '00.000.000/0001-00',
@@ -603,11 +677,22 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
             contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
           ),
         ),
+        const SizedBox(height: 12),
 
-        if (_chamado?.telefone != null && _chamado!.telefone!.isNotEmpty) ...[
-          const SizedBox(height: 10),
-          _buildInfoRow('Telefone/WhatsApp:', _chamado!.telefone!),
-        ],
+        // Telefone / WhatsApp
+        TextFormField(
+          controller: _telefoneController,
+          keyboardType: TextInputType.phone,
+          decoration: InputDecoration(
+            labelText: 'Telefone / WhatsApp de Contato *',
+            hintText: '(00) 00000-0000',
+            prefixIcon: const Icon(Icons.phone_outlined, size: 18),
+            filled: true,
+            fillColor: const Color(0xFFF8FAFC),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          ),
+        ),
       ],
     );
   }
@@ -669,21 +754,73 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
       icon: Icons.gavel_outlined,
       children: [
         Container(
-          padding: const EdgeInsets.all(12),
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: const Color(0xFFF8FAFC),
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(8),
             border: Border.all(color: Colors.grey.shade200),
           ),
-          child: const Text(
-            '1. A aprovação deste orçamento autoriza o agendamento e o deslocamento dos técnicos especializados da ATS Serviços.\n'
-            '2. As horas técnicas serão apuradas conforme apontamento no Relatório ATS final assinado pelo representante da contratante.\n'
-            '3. Peças e componentes adicionais serão cotados separadamente mediante autorização expressa.\n'
-            '4. Garantia legal de 90 dias sobre os serviços executados.',
-            style: TextStyle(fontSize: 12, height: 1.5, color: Color(0xFF475569)),
+          child: const Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Os termos abaixo são referentes ao serviço de assistência técnica. A aceitação desse é necessária para efetivação do atendimento.',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF334155),
+                  fontStyle: FontStyle.italic,
+                  height: 1.4,
+                ),
+              ),
+              SizedBox(height: 14),
+
+              // 1. Da solicitação:
+              Text(
+                '1. Da solicitação:',
+                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+              ),
+              SizedBox(height: 4),
+              Text(
+                '1.1 Para efetivação da solicitação de atendimento é necessário o preenchimento completo do orçamento;\n'
+                '1.2 O atendimento será agendado após aprovação do orçamento e análise de crédito.',
+                style: TextStyle(fontSize: 12, height: 1.5, color: Color(0xFF475569)),
+              ),
+              SizedBox(height: 14),
+
+              // 2. Dos custos:
+              Text(
+                '2. Dos custos:',
+                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+              ),
+              SizedBox(height: 4),
+              Text(
+                '2.1 A cobrança do deslocamento iniciará a partir da residência do técnico que será previamente informada ao cliente;\n'
+                '2.2 O atendimento será realizado por 1 (um) técnico da Pmach. Caso necessário, será deslocado mais um profissional mediante prévio aviso e aprovação dos custos;\n'
+                '2.3 Em serviços que exijam movimentação de peças pesadas e/ou partes da máquina, os equipamentos necessários (empilhadeira, ponte rolante, talhas) deverão ser providenciados pelo cliente;\n'
+                '2.4 Despesas com transporte de ferramentas e/ou instrumentos de grande porte serão de responsabilidade do cliente;\n'
+                '2.5 Nos atendimentos que o pernoite for necessário, gastos com estadia, café da manhã e alimentação noturna terão ônus ao cliente;\n'
+                '2.6 Quando, para a solução completa do defeito, se fizer necessária a substituição de peça(s), após o término do atendimento será enviado orçamento da(s) peça(s) avariada(s) e as horas gastas no diagnóstico técnico serão cobradas normalmente.',
+                style: TextStyle(fontSize: 12, height: 1.5, color: Color(0xFF475569)),
+              ),
+              SizedBox(height: 14),
+
+              // 3. Da cobrança e prazo de pagamento:
+              Text(
+                '3. Da cobrança e prazo de pagamento:',
+                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+              ),
+              SizedBox(height: 4),
+              Text(
+                '3.1 Após fechamento do relatório técnico, o departamento financeiro enviará um demonstrativo de cobrança. O prazo para análise e contestação do demonstrativo é de 01 dia útil;\n'
+                '3.2 A nota fiscal de prestação de serviço e boleto serão emitidos após a aprovação do demonstrativo ou expiração do prazo de análise. O prazo de pagamento será de 10 dias.',
+                style: TextStyle(fontSize: 12, height: 1.5, color: Color(0xFF475569)),
+              ),
+            ],
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 14),
         Row(
           children: [
             Checkbox(
@@ -810,29 +947,6 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
     );
   }
 
-  Widget _buildInfoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3.0),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 140,
-            child: Text(
-              label,
-              style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildTelaSucesso() {
     return Center(

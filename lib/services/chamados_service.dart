@@ -198,13 +198,13 @@ class ChamadosService {
     return false;
   }
 
-  /// Cria um novo orçamento simplificado aberto pelo Gerente (sem endereço nem CNPJ)
+  /// Cria uma nova proposta simplificada aberta pelo Gerente (apenas com contato/cliente inicial)
   Future<Chamado> criarNovoChamado({
     required String contato,
-    required String telefone,
-    required String fabricante,
-    required String modeloMaquina,
-    required String defeitoRelatado,
+    String telefone = '',
+    String fabricante = '',
+    String modeloMaquina = '',
+    String defeitoRelatado = '',
     String? razaoSocial,
   }) async {
     final novoNumero = '0147${44 + chamadosNotifier.value.length}';
