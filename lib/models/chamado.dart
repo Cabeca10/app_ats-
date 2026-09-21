@@ -33,6 +33,14 @@ class ChamadoStatus {
 
 /// Modelo de dados completo para o Chamado / Orçamento Pmach ATS
 class Chamado {
+  /// Projeção mínima para listagens leves (redução estrita de tráfego AppSec)
+  static const String selectColumnsMinimas = 
+      'id, numero_ats, razao_social, status, token_url, modelo_maquina, fabricante, numero_serie, defeito_relatado, endereco, telefone, created_at';
+
+  /// Projeção completa para detalhes do chamado
+  static const String selectColumnsCompletas = 
+      'id, numero_ats, razao_social, cnpj, inscricao_estadual, telefone, cliente_email, endereco, cidade, contato, fabricante, modelo_maquina, numero_serie, defeito_relatado, token_url, status, taxa_horaria_comercial, taxa_horaria_extra, taxa_horaria_especial, taxa_km, km_estimado, hora_viagem_estimada, valor_estimado_total, termos_aceitos, aceite_data, responsavel_aceite_nome, responsavel_aceite_cargo, assinatura_url, orcamento_pdf_url, tecnico_id, tecnico_nome, created_at, updated_at';
+
   final String id;
   final String numeroAts;
   final String razaoSocial;
@@ -74,6 +82,10 @@ class Chamado {
   final String? assinaturaUrl;
   final String? orcamentoPdfUrl;
 
+  // Mídia adicional e sincronização offline-first
+  final String? videoUrl;
+  final bool pendingSync;
+
   // Técnico Atribuído
   final String? tecnicoId;
   final String? tecnicoNome;
@@ -114,6 +126,8 @@ class Chamado {
     this.responsavelAceiteCargo,
     this.assinaturaUrl,
     this.orcamentoPdfUrl,
+    this.videoUrl,
+    this.pendingSync = false,
     this.tecnicoId,
     this.tecnicoNome,
     DateTime? createdAt,
@@ -152,6 +166,8 @@ class Chamado {
     String? responsavelAceiteCargo,
     String? assinaturaUrl,
     String? orcamentoPdfUrl,
+    String? videoUrl,
+    bool? pendingSync,
     String? tecnicoId,
     String? tecnicoNome,
     DateTime? createdAt,
@@ -189,6 +205,8 @@ class Chamado {
       responsavelAceiteCargo: responsavelAceiteCargo ?? this.responsavelAceiteCargo,
       assinaturaUrl: assinaturaUrl ?? this.assinaturaUrl,
       orcamentoPdfUrl: orcamentoPdfUrl ?? this.orcamentoPdfUrl,
+      videoUrl: videoUrl ?? this.videoUrl,
+      pendingSync: pendingSync ?? this.pendingSync,
       tecnicoId: tecnicoId ?? this.tecnicoId,
       tecnicoNome: tecnicoNome ?? this.tecnicoNome,
       createdAt: createdAt ?? this.createdAt,
@@ -229,6 +247,8 @@ class Chamado {
       'responsavel_aceite_cargo': responsavelAceiteCargo,
       'assinatura_url': assinaturaUrl,
       'orcamento_pdf_url': orcamentoPdfUrl,
+      'video_url': videoUrl,
+      'pending_sync': pendingSync,
       'tecnico_id': tecnicoId,
       'tecnico_nome': tecnicoNome,
       'created_at': createdAt.toIso8601String(),
@@ -269,6 +289,8 @@ class Chamado {
       responsavelAceiteCargo: map['responsavel_aceite_cargo'],
       assinaturaUrl: map['assinatura_url'],
       orcamentoPdfUrl: map['orcamento_pdf_url'],
+      videoUrl: map['video_url'],
+      pendingSync: map['pending_sync'] == true,
       tecnicoId: map['tecnico_id'],
       tecnicoNome: map['tecnico_nome'],
       createdAt: map['created_at'] != null ? DateTime.parse(map['created_at']) : DateTime.now(),

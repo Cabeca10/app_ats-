@@ -97,7 +97,7 @@ class ChamadosService {
     try {
       final response = await Supabase.instance.client
           .from('chamados')
-          .select()
+          .select(Chamado.selectColumnsCompletas)
           .order('created_at', ascending: false);
 
       if ((response as List).isNotEmpty) {
@@ -207,13 +207,15 @@ class ChamadosService {
     String defeitoRelatado = '',
     String? razaoSocial,
   }) async {
-    final novoNumero = '0147${44 + chamadosNotifier.value.length}';
-    final token = 'tok-${DateTime.now().millisecondsSinceEpoch}';
     final agora = DateTime.now();
+    final dataFormatada = '${agora.year}${agora.month.toString().padLeft(2, '0')}${agora.day.toString().padLeft(2, '0')}';
+    final sequencial = (chamadosNotifier.value.length + 1).toString().padLeft(3, '0');
+    final numeroPadrao = 'ATS-$dataFormatada-$sequencial';
+    final token = 'tok-${agora.millisecondsSinceEpoch}';
 
-    final novo = Chamado(
+    Chamado novo = Chamado(
       id: 'chamado-${agora.millisecondsSinceEpoch}',
-      numeroAts: novoNumero,
+      numeroAts: numeroPadrao,
       razaoSocial: (razaoSocial != null && razaoSocial.trim().isNotEmpty) ? razaoSocial.trim() : contato,
       contato: contato,
       telefone: telefone,
@@ -226,7 +228,20 @@ class ChamadosService {
     );
 
     try {
-      await Supabase.instance.client.from('chamados').insert(novo.toMap());
+      final insertMap = novo.toMap();
+      // Permite que o Trigger do PostgreSQL gere o numero_ats com row-level lock anti-race condition
+      final res = await Supabase.instance.client
+          .from('chamados')
+          .insert(insertMap)
+          .select(Chamado.selectColumnsMinimas)
+          .maybeSingle();
+
+      if (res != null && res['numero_ats'] != null) {
+        novo = novo.copyWith(
+          id: res['id']?.toString(),
+          numeroAts: res['numero_ats'].toString(),
+        );
+      }
     } catch (_) {}
 
     final lista = List<Chamado>.from(chamadosNotifier.value);
@@ -240,7 +255,7 @@ class ChamadosService {
   Future<bool> finalizarChamado({
     required String numeroAts,
     String? chamadoId,
-    required String assinaturaUrl,
+    String assinaturaUrl = '',
     String? responsavelNome,
     String? defeitoRelatado,
     String? razaoSocial,

@@ -1,11 +1,11 @@
 {
-    "name": "app_ats",
-    "short_name": "app_ats",
-    "start_url": ".",
+    "name": "Pmach ATS Digital",
+    "short_name": "Pmach ATS",
+    "start_url": "/",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#0A369D",
+    "theme_color": "#0A369D",
+    "description": "Sistema PWA de Gestão e Atendimento Técnico Industrial Pmach ATS",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

@@ -5,11 +5,12 @@ import 'screens/auth/login_screen.dart';
 import 'screens/tecnico/tecnico_dashboard.dart';
 import 'screens/gerente/gerente_dashboard.dart';
 import 'screens/cliente/orcamento_client_screen.dart';
+import 'services/offline_storage_service.dart';
 
 // ============================================================================
-// CONFIGURAÇÃO DO SUPABASE
-// Por segurança, as credenciais são lidas via variáveis de ambiente (--dart-define)
-// ou configuradas localmente no seu ambiente de desenvolvimento.
+// CONFIGURAÇÃO DO SUPABASE (REGRA DE APPSEC INEGOCIÁVEL)
+// É terminantemente PROIBIDO incluir chaves administrativas privilegiadas no frontend.
+// Inicializamos estritamente com a anonKey pública.
 // ============================================================================
 const String kSupabaseUrl = String.fromEnvironment(
   'SUPABASE_URL',
@@ -28,6 +29,10 @@ class AppAuthState {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // 1. Inicializa o Hive para persistência offline-first
+  await OfflineStorageService.instance.init();
+
+  // 2. Inicializa o Supabase com estrita anon_key pública
   try {
     await Supabase.initialize(
       url: kSupabaseUrl,
@@ -134,14 +139,43 @@ class _AuthWrapperState extends State<AuthWrapper> {
   void initState() {
     super.initState();
     _session = Supabase.instance.client.auth.currentSession;
+    if (_session?.user != null) {
+      _resolverPerfilAutomatico(_session!.user);
+    }
     _initialCheckDone = true;
-    _authSubscription = Supabase.instance.client.auth.onAuthStateChange.listen((
-      data,
-    ) {
+    _authSubscription = Supabase.instance.client.auth.onAuthStateChange.listen((data) {
       setState(() {
         _session = data.session;
       });
+      if (data.session?.user != null) {
+        _resolverPerfilAutomatico(data.session!.user);
+      }
     });
+  }
+
+  Future<void> _resolverPerfilAutomatico(User user) async {
+    String? role = user.userMetadata?['role']?.toString();
+    if (role == null || role.isEmpty) {
+      try {
+        final row = await Supabase.instance.client
+            .from('usuarios')
+            .select('perfil')
+            .eq('id', user.id)
+            .maybeSingle();
+        if (row != null && row['perfil'] != null) {
+          role = row['perfil'].toString();
+        }
+      } catch (_) {}
+    }
+
+    if (role != null && mounted) {
+      final novoRole = (role.toLowerCase() == 'gerente') ? 'Gerente' : 'Técnico';
+      if (AppAuthState.selectedRole != novoRole) {
+        setState(() {
+          AppAuthState.selectedRole = novoRole;
+        });
+      }
+    }
   }
 
   @override

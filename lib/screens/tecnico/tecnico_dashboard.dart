@@ -1,4 +1,6 @@
-import 'dart:typed_data';
+import 'dart:async';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -6,7 +8,9 @@ import '../../main.dart';
 import 'ats_form_screen.dart';
 import '../../models/chamado.dart';
 import '../../services/chamados_service.dart';
+import '../../services/offline_storage_service.dart';
 import '../../services/orcamento_pdf_service.dart';
+import '../../services/pwa_helper.dart';
 
 const Color _emerald = Color(0xFF10B981);
 const Color _emeraldDark = Color(0xFF065F46);
@@ -50,19 +54,166 @@ class TecnicoDashboard extends StatefulWidget {
 class _TecnicoDashboardState extends State<TecnicoDashboard> {
   int _currentIndex = 0;
   bool _isOnline = true;
+  late final StreamSubscription<List<ConnectivityResult>> _connectivitySub;
 
-  // Mock list of daily tickets
-  final List<Ticket> _tickets = [
+  List<Ticket> _tickets = [
     Ticket(
       id: "ATS-2026-081",
+      chamadoId: "c-014742",
+      numeroAts: "014742",
       companyName: "Metalúrgica Alfa S.A.",
       machineModel: "Torno CNC Haas ST-20",
       scheduledTime: "09:00 - 11:30",
       priority: "Alta",
       status: "Pendente",
       address: "Av. Industrial, 1024 - Joinville",
+      defeitoRelatado: "Alarme 102 - Sobrecarga no servo motor eixo Z",
     ),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _carregarChamadosDoTecnico();
+    _connectivitySub = Connectivity().onConnectivityChanged.listen((results) {
+      final isOffline = results.contains(ConnectivityResult.none) || results.isEmpty;
+      if (mounted) {
+        setState(() {
+          _isOnline = !isOffline;
+        });
+        if (!isOffline) {
+          _carregarChamadosDoTecnico();
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _connectivitySub.cancel();
+    super.dispose();
+  }
+
+  /// Consulta enxuta (AppSec) filtrada pelo ID do técnico autenticado com cache no Hive
+  Future<void> _carregarChamadosDoTecnico() async {
+    final user = Supabase.instance.client.auth.currentUser;
+
+    try {
+      final connectivityResult = await Connectivity().checkConnectivity();
+      final isOffline = connectivityResult.contains(ConnectivityResult.none) || connectivityResult.isEmpty;
+
+      if (isOffline || user == null) {
+        _carregarDoCacheLocal();
+        return;
+      }
+
+      // AppSec: Pede estritamente as colunas necessárias para o card e filtra pelo ID
+      final response = await Supabase.instance.client
+          .from('chamados')
+          .select(Chamado.selectColumnsMinimas)
+          .eq('tecnico_id', user.id)
+          .order('created_at', ascending: false);
+
+      if ((response as List).isNotEmpty) {
+        final list = (response as List).map((row) {
+          return Ticket(
+            id: 'ATS-${row['numero_ats'] ?? ''}',
+            chamadoId: row['id']?.toString(),
+            numeroAts: row['numero_ats']?.toString(),
+            companyName: row['razao_social']?.toString() ?? 'Cliente',
+            machineModel: row['modelo_maquina']?.toString() ?? 'Equipamento',
+            scheduledTime: '08:00 - 17:00',
+            priority: 'Alta',
+            status: _formatarStatus(row['status']?.toString()),
+            address: row['endereco']?.toString() ?? 'Conforme O.S.',
+            defeitoRelatado: row['defeito_relatado']?.toString(),
+          );
+        }).toList();
+
+        // Salva imediatamente a lista no banco local Hive (Offline-First)
+        await OfflineStorageService.instance.salvarChamadosTecnicoCache(
+          List<Map<String, dynamic>>.from(response),
+        );
+
+        if (mounted) {
+          setState(() {
+            _tickets = list;
+            _isOnline = true;
+          });
+        }
+        return;
+      } else {
+        _carregarDoCacheLocal();
+      }
+    } catch (e) {
+      debugPrint('[TecnicoDashboard] Erro na rede, recorrendo ao cache Hive: $e');
+      _carregarDoCacheLocal();
+    }
+  }
+
+  void _carregarDoCacheLocal() {
+    final cached = OfflineStorageService.instance.obterChamadosTecnicoCache();
+    if (cached.isNotEmpty) {
+      final list = cached.map((row) {
+        return Ticket(
+          id: 'ATS-${row['numero_ats'] ?? ''}',
+          chamadoId: row['id']?.toString(),
+          numeroAts: row['numero_ats']?.toString(),
+          companyName: row['razao_social']?.toString() ?? 'Cliente',
+          machineModel: row['modelo_maquina']?.toString() ?? 'Equipamento',
+          scheduledTime: '08:00 - 17:00',
+          priority: 'Alta',
+          status: _formatarStatus(row['status']?.toString()),
+          address: row['endereco']?.toString() ?? 'Conforme O.S.',
+          defeitoRelatado: row['defeito_relatado']?.toString(),
+        );
+      }).toList();
+
+      if (mounted) {
+        setState(() {
+          _tickets = list;
+          _isOnline = false;
+        });
+      }
+    } else {
+      final localNotifier = ChamadosService.instance.chamadosNotifier.value;
+      if (localNotifier.isNotEmpty) {
+        final list = localNotifier.map((c) {
+          return Ticket(
+            id: 'ATS-${c.numeroAts}',
+            chamadoId: c.id,
+            numeroAts: c.numeroAts,
+            companyName: c.razaoSocial,
+            machineModel: c.modeloMaquina ?? 'Equipamento',
+            scheduledTime: '08:00 - 17:00',
+            priority: 'Alta',
+            status: _formatarStatus(c.status),
+            address: c.endereco ?? 'Conforme O.S.',
+            defeitoRelatado: c.defeitoRelatado,
+          );
+        }).toList();
+
+        if (mounted) {
+          setState(() {
+            _tickets = list;
+          });
+        }
+      }
+    }
+  }
+
+  String _formatarStatus(String? raw) {
+    if (raw == null) return 'Pendente';
+    switch (raw.toLowerCase()) {
+      case 'finalizado':
+        return 'Concluído';
+      case 'em_atendimento':
+        return 'Em Andamento';
+      case 'atribuido':
+      default:
+        return 'Pendente';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -304,45 +455,160 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
           ),
         ),
 
-        // List of tickets integrado com ChamadosService
+        // Banner de Instalação PWA (se acessando pelo navegador móvel)
+        if (kIsWeb)
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF0A369D), Color(0xFF1E3A8A)],
+              ),
+              borderRadius: BorderRadius.circular(8),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF0A369D).withOpacity(0.2),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.install_mobile, color: Colors.white, size: 20),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Instalar Pmach ATS',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                      ),
+                      Text(
+                        'Adicione à tela inicial para tela cheia e offline',
+                        style: TextStyle(color: Color(0xFFBFDBFE), fontSize: 10),
+                      ),
+                    ],
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    promptPwaInstallation();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Selecione "Adicionar à Tela Inicial" no menu do navegador para instalar o app.'),
+                        duration: Duration(seconds: 3),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: const Color(0xFF0A369D),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+                  ),
+                  child: const Text('Instalar'),
+                ),
+              ],
+            ),
+          ),
+
+        // Banner informativo se estiver operando em modo Offline no chão de fábrica
+        if (!_isOnline)
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFEF3C7),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFFFDE68A)),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.wifi_off, size: 18, color: Color(0xFFD97706)),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Modo Offline: Dados locais salvos no dispositivo (Hive) disponíveis para acesso no chão de fábrica.',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF92400E)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+        // List of tickets integrado com ChamadosService e cache local
         Expanded(
-          child: ValueListenableBuilder<List<Chamado>>(
-            valueListenable: ChamadosService.instance.chamadosNotifier,
-            builder: (context, chamados, _) {
-              // Converte os chamados atribuídos pelo gerente em tickets para o técnico
-              final chamadosAtribuidos = chamados
-                  .where((c) =>
-                      c.status == ChamadoStatus.atribuido ||
-                      c.status == ChamadoStatus.emAtendimento ||
-                      c.status == ChamadoStatus.finalizado)
-                  .map((c) => Ticket(
-                        id: 'ATS-${c.numeroAts}',
-                        chamadoId: c.id,
-                        numeroAts: c.numeroAts,
-                        companyName: c.razaoSocial,
-                        machineModel: '${c.fabricante ?? "Pmach"} ${c.modeloMaquina ?? ""}',
-                        scheduledTime: 'Prioritário',
-                        priority: 'Alta',
-                        status: c.status == ChamadoStatus.finalizado
-                            ? 'Concluído'
-                            : (c.status == ChamadoStatus.emAtendimento ? 'Em Andamento' : 'Pendente'),
-                        address: c.endereco ?? 'Joinville / Região',
-                        defeitoRelatado: c.defeitoRelatado,
-                        orcamentoPdfUrl: c.orcamentoPdfUrl,
-                      ))
-                  .toList();
+          child: RefreshIndicator(
+            onRefresh: _carregarChamadosDoTecnico,
+            color: const Color(0xFF0A369D),
+            child: ValueListenableBuilder<List<Chamado>>(
+              valueListenable: ChamadosService.instance.chamadosNotifier,
+              builder: (context, chamados, _) {
+                // Converte os chamados atribuídos pelo gerente em tickets para o técnico
+                final chamadosAtribuidos = chamados
+                    .where((c) =>
+                        c.status == ChamadoStatus.atribuido ||
+                        c.status == ChamadoStatus.emAtendimento ||
+                        c.status == ChamadoStatus.finalizado)
+                    .map((c) => Ticket(
+                          id: 'ATS-${c.numeroAts}',
+                          chamadoId: c.id,
+                          numeroAts: c.numeroAts,
+                          companyName: c.razaoSocial,
+                          machineModel: '${c.fabricante ?? "Pmach"} ${c.modeloMaquina ?? ""}',
+                          scheduledTime: 'Prioritário',
+                          priority: 'Alta',
+                          status: c.status == ChamadoStatus.finalizado
+                              ? 'Concluído'
+                              : (c.status == ChamadoStatus.emAtendimento ? 'Em Andamento' : 'Pendente'),
+                          address: c.endereco ?? 'Joinville / Região',
+                          defeitoRelatado: c.defeitoRelatado,
+                          orcamentoPdfUrl: c.orcamentoPdfUrl,
+                        ))
+                    .toList();
 
-              final allTickets = [..._tickets, ...chamadosAtribuidos];
+                // Evita duplicatas pelo ID
+                final ticketIds = <String>{};
+                final allTickets = <Ticket>[];
 
-              return ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                itemCount: allTickets.length,
-                itemBuilder: (context, index) {
-                  final ticket = allTickets[index];
-                  return _buildTicketCard(ticket);
-                },
-              );
-            },
+                for (var t in _tickets) {
+                  if (ticketIds.add(t.id)) allTickets.add(t);
+                }
+                for (var t in chamadosAtribuidos) {
+                  if (ticketIds.add(t.id)) allTickets.add(t);
+                }
+
+                if (allTickets.isEmpty) {
+                  return ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: const [
+                      SizedBox(height: 80),
+                      Center(
+                        child: Text(
+                          'Nenhum chamado atribuído no momento.',
+                          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                        ),
+                      ),
+                    ],
+                  );
+                }
+
+                return ListView.builder(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  itemCount: allTickets.length,
+                  itemBuilder: (context, index) {
+                    final ticket = allTickets[index];
+                    return _buildTicketCard(ticket);
+                  },
+                );
+              },
+            ),
           ),
         ),
       ],

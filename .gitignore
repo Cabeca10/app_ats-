@@ -50,7 +50,15 @@ app.*.map.json
 *.key
 *.keystore
 *.jks
+*.p12
+*.pfx
+*.pem
+*.cer
+*.crt
 key.properties
 google-services.json
 GoogleService-Info.plist
+credentials.json
+secrets/
+
 

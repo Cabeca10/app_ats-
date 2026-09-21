@@ -56,15 +56,29 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
 
     try {
       if (_isSignUpMode) {
-        // Sign Up Flow
-        await Supabase.instance.client.auth.signUp(
+        // Sign Up Flow com atribuição de role
+        final role = AppAuthState.selectedRole.toLowerCase() == 'gerente' ? 'gerente' : 'tecnico';
+        final authRes = await Supabase.instance.client.auth.signUp(
           email: email,
           password: password,
+          data: {'role': role},
         );
+
+        if (authRes.user != null) {
+          try {
+            await Supabase.instance.client.from('usuarios').insert({
+              'id': authRes.user!.id,
+              'nome': email.split('@').first,
+              'email': email,
+              'perfil': role,
+            });
+          } catch (_) {}
+        }
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Conta criada! Verifique seu e-mail para confirmação se necessário.'),
+              content: Text('Conta criada com sucesso! Faça login para continuar.'),
               backgroundColor: Colors.green,
             ),
           );
@@ -73,12 +87,30 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
           });
         }
       } else {
-        // Sign In Flow
-        await Supabase.instance.client.auth.signInWithPassword(
+        // Sign In Flow com detecção de perfil inteligente
+        final authRes = await Supabase.instance.client.auth.signInWithPassword(
           email: email,
           password: password,
         );
-        // Auth state listener in main.dart will handle navigation
+
+        if (authRes.user != null) {
+          String? role = authRes.user!.userMetadata?['role']?.toString();
+          if (role == null || role.isEmpty) {
+            try {
+              final userRow = await Supabase.instance.client
+                  .from('usuarios')
+                  .select('perfil')
+                  .eq('id', authRes.user!.id)
+                  .maybeSingle();
+              if (userRow != null && userRow['perfil'] != null) {
+                role = userRow['perfil'].toString();
+              }
+            } catch (_) {}
+          }
+          if (role != null) {
+            AppAuthState.selectedRole = (role.toLowerCase() == 'gerente') ? 'Gerente' : 'Técnico';
+          }
+        }
       }
     } on AuthException catch (e) {
       if (mounted) {

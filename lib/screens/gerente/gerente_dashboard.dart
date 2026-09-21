@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../main.dart';
 import '../../models/chamado.dart';
 import '../../services/chamados_service.dart';
-import 'chamados_list_screen.dart';
 
 const Color _emerald = Color(0xFF10B981);
 
@@ -16,559 +15,700 @@ class GerenteDashboard extends StatefulWidget {
 }
 
 class _GerenteDashboardState extends State<GerenteDashboard> {
-  int _currentIndex = 0;
+  int _selectedMenuIndex = 1; // Tabela de chamados selecionada por padrão para visão de gestão
+  String _filtroStatus = 'todos';
+  String _buscaTexto = '';
+  final _dateFormat = DateFormat('dd/MM/yyyy HH:mm');
 
-  // Mock list of technicians and their statuses
-  final List<Map<String, String>> _technicians = [
-    {"name": "Carlos Silva", "status": "Em Campo", "job": "Haas CNC ST-20 - Metalúrgica Alfa"},
-    {"name": "Marcos Oliveira", "status": "Disponível", "job": "-"},
-    {"name": "André Souza", "status": "Em Campo", "job": "Injetora Husky - Plásticos União"},
-    {"name": "Lucas Pereira", "status": "Em Almoço", "job": "-"},
-  ];
-
-  // Mock list of reports awaiting approval
-  final List<Map<String, String>> _pendingApprovals = [
-    {"id": "ATS-2026-079", "client": "Indústria Têxtil Linho", "tech": "Carlos Silva", "date": "25/08/2026", "hours": "4h 30m"},
-    {"id": "ATS-2026-080", "client": "Metalúrgica Haas Joinville", "tech": "André Souza", "date": "25/08/2026", "hours": "2h 15m"},
+  final List<String> _tecnicosDisponiveis = [
+    'Carlos Silva',
+    'André Souza',
+    'Marcos Oliveira',
+    'Lucas Pereira',
   ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.grey.shade200),
-              ),
-              child: Image.asset(
-                'assets/images/logo_pmach.png',
-                height: 32,
-                width: 32,
-                fit: BoxFit.contain,
-              ),
+      backgroundColor: const Color(0xFFF1F5F9),
+      body: Row(
+        children: [
+          // ==================================================================
+          // 1. MENU LATERAL (SIDEBAR - LAYOUT HORIZONTAL WEB)
+          // ==================================================================
+          Container(
+            width: 250,
+            decoration: const BoxDecoration(
+              color: Color(0xFF0F172A), // Dark Navy Slate
+              boxShadow: [
+                BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(2, 0)),
+              ],
             ),
-            const SizedBox(width: 10),
-            const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
+            child: Column(
               children: [
-                Text(
-                  'ATS Serviços',
-                  style: TextStyle(
-                    color: Color(0xFF0C1A30),
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15,
-                    height: 1.1,
+                // Topo da Sidebar: Logo Pmach e Nome
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                  decoration: const BoxDecoration(
+                    border: Border(bottom: BorderSide(color: Color(0xFF1E293B))),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Image.asset(
+                          'assets/images/logo_pmach.png',
+                          height: 32,
+                          width: 32,
+                          fit: BoxFit.contain,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'ATS Serviços',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                            Text(
+                              'Portal de Gestão',
+                              style: TextStyle(
+                                color: Color(0xFF94A3B8),
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                Text(
-                  'Equipamentos e Peças Ltda',
-                  style: TextStyle(
-                    color: Color(0xFF64748B),
-                    fontWeight: FontWeight.w500,
-                    fontSize: 10,
+
+                // Perfil do Gestor
+                Container(
+                  margin: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1E293B),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 18,
+                        backgroundColor: const Color(0xFF0A369D),
+                        child: const Icon(Icons.person, color: Colors.white, size: 20),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              Supabase.instance.client.auth.currentUser?.email?.split('@').first ?? 'Gestor ATS',
+                              style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const Text(
+                              'Gerente Operacional',
+                              style: TextStyle(color: Color(0xFF38BDF8), fontSize: 11),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 8),
+
+                // Itens de Navegação do Menu Lateral
+                _buildSidebarItem(
+                  icon: Icons.dashboard_outlined,
+                  label: 'Visão Geral',
+                  index: 0,
+                ),
+                _buildSidebarItem(
+                  icon: Icons.table_chart_outlined,
+                  label: 'Tabela de Chamados',
+                  index: 1,
+                ),
+                _buildSidebarItem(
+                  icon: Icons.people_outline,
+                  label: 'Equipe Técnica',
+                  index: 2,
+                ),
+
+                const Spacer(),
+
+                // Rodapé do Menu Lateral com Sair
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: const BoxDecoration(
+                    border: Border(top: BorderSide(color: Color(0xFF1E293B))),
+                  ),
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.logout, color: Color(0xFFEF4444)),
+                    title: const Text('Encerrar Sessão', style: TextStyle(color: Color(0xFFEF4444), fontSize: 13, fontWeight: FontWeight.bold)),
+                    onTap: () => _showLogoutDialog(context),
                   ),
                 ),
               ],
+            ),
+          ),
+
+          // ==================================================================
+          // 2. ÁREA PRINCIPAL (MAIN CONTENT AREA - WEB HORIZONTAL)
+          // ==================================================================
+          Expanded(
+            child: Column(
+              children: [
+                // Topo da Área Principal: Barra Superior com Ação Rápida
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _obterTituloPagina(),
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF0F172A),
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          const Text(
+                            'Supervisão industrial e atribuição de serviços em tempo real',
+                            style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                          ),
+                        ],
+                      ),
+                      Row(
+                        children: [
+                          // Botão Principal de Ação: Criar e Atribuir Serviço
+                          ElevatedButton.icon(
+                            onPressed: () => _abrirModalCriarEAtribuir(context),
+                            icon: const Icon(Icons.add_task, size: 18),
+                            label: const Text('+ Criar e Atribuir Serviço'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF0A369D),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              elevation: 2,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Conteúdo da Aba Selecionada
+                Expanded(
+                  child: _buildConteudoAba(),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSidebarItem({required IconData icon, required String label, required int index}) {
+    final isSelected = _selectedMenuIndex == index;
+    return InkWell(
+      onTap: () => setState(() => _selectedMenuIndex = index),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFF0A369D) : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: isSelected ? Colors.white : const Color(0xFF94A3B8), size: 20),
+            const SizedBox(width: 12),
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? Colors.white : const Color(0xFFCBD5E1),
+                fontSize: 13,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+              ),
             ),
           ],
         ),
-        actions: [
-          Container(
-            margin: const EdgeInsets.only(right: 8),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: const Color(0xFFEFF6FF),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.admin_panel_settings, size: 14, color: Color(0xFF0A369D)),
-                SizedBox(width: 4),
-                Text(
-                  'Gerente',
-                  style: TextStyle(
-                    color: Color(0xFF0A369D),
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout, color: Colors.grey),
-            onPressed: () => _showLogoutDialog(context),
-            tooltip: 'Sair da Conta',
-          ),
-        ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(1.0),
-          child: Container(
-            color: Colors.grey.shade200,
-            height: 1.0,
-          ),
-        ),
-      ),
-      body: _buildBody(),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        type: BottomNavigationBarType.fixed,
-        selectedItemColor: const Color(0xFF0A369D),
-        unselectedItemColor: Colors.grey.shade500,
-        showUnselectedLabels: true,
-        selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-        unselectedLabelStyle: const TextStyle(fontSize: 12),
-        onTap: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.dashboard_outlined),
-            activeIcon: Icon(Icons.dashboard),
-            label: 'Painel',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.assignment_outlined),
-            activeIcon: Icon(Icons.assignment),
-            label: 'Chamados',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.people_outline),
-            activeIcon: Icon(Icons.people),
-            label: 'Equipe',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            activeIcon: Icon(Icons.person),
-            label: 'Perfil',
-          ),
-        ],
       ),
     );
   }
 
-  Widget _buildBody() {
-    switch (_currentIndex) {
+  String _obterTituloPagina() {
+    switch (_selectedMenuIndex) {
       case 0:
-        return _buildPainelPage();
+        return 'Visão Geral e Indicadores';
       case 1:
-        return const ChamadosListScreen();
+        return 'Tabela Reativa de Chamados';
       case 2:
-        return _buildEquipePage();
-      case 3:
-        return _buildPerfilPage();
+        return 'Equipe de Técnicos em Campo';
       default:
-        return _buildPainelPage();
+        return 'Painel do Gestor';
     }
   }
 
-  // PAGE 1: PAINEL (OVERVIEW & APPROVALS)
-  Widget _buildPainelPage() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Welcome Card with Gradient
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(20),
-          margin: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF0A369D), Color(0xFF1E5BB8)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF0A369D).withOpacity(0.3),
-                blurRadius: 12,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
-          child: const Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Olá, Gerente!',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              SizedBox(height: 6),
-              Text(
-                'Acompanhe a atividade técnica e aprove relatórios pendentes.',
-                style: TextStyle(
-                  color: Color(0xFFE2E8F0),
-                  fontSize: 13,
-                  height: 1.4,
-                ),
-              ),
-            ],
-          ),
-        ),
+  Widget _buildConteudoAba() {
+    switch (_selectedMenuIndex) {
+      case 0:
+        return _buildVisaoGeralPage();
+      case 1:
+        return _buildTabelaChamadosReativa();
+      case 2:
+        return _buildEquipeTecnicaPage();
+      default:
+        return _buildTabelaChamadosReativa();
+    }
+  }
 
-        // Quick Stats row com contagem reativa de orçamentos aprovados
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0),
-          child: ValueListenableBuilder<List<Chamado>>(
-            valueListenable: ChamadosService.instance.chamadosNotifier,
-            builder: (context, chamados, _) {
-              final pendentes = chamados.where((c) => c.status == ChamadoStatus.aprovadoPendente).length;
-              return Row(
-                children: [
-                  Expanded(child: _buildStatCard('Em Campo', '2', Icons.directions_run, Colors.orangeAccent)),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () {
-                        setState(() {
-                          _currentIndex = 1; // Navega para a aba de Chamados
-                        });
-                      },
-                      child: _buildStatCard(
-                        'Orçamentos Aprovados',
-                        '$pendentes',
-                        Icons.verified,
-                        const Color(0xFF10B981),
+  // ============================================================================
+  // TABELA REATIVA DE CHAMADOS (FULL DATA TABLE COM AÇÕES)
+  // ============================================================================
+  Widget _buildTabelaChamadosReativa() {
+    return ValueListenableBuilder<List<Chamado>>(
+      valueListenable: ChamadosService.instance.chamadosNotifier,
+      builder: (context, todosChamados, _) {
+        // Aplica filtros de status e busca textual
+        final chamados = todosChamados.where((c) {
+          final matchesBusca = _buscaTexto.isEmpty ||
+              c.numeroAts.toLowerCase().contains(_buscaTexto.toLowerCase()) ||
+              c.razaoSocial.toLowerCase().contains(_buscaTexto.toLowerCase()) ||
+              (c.modeloMaquina ?? '').toLowerCase().contains(_buscaTexto.toLowerCase()) ||
+              (c.tecnicoNome ?? '').toLowerCase().contains(_buscaTexto.toLowerCase());
+
+          if (!matchesBusca) return false;
+
+          switch (_filtroStatus) {
+            case 'aprovado_pendente':
+              return c.status == ChamadoStatus.aprovadoPendente;
+            case 'atribuido':
+              return c.status == ChamadoStatus.atribuido;
+            case 'em_atendimento':
+              return c.status == ChamadoStatus.emAtendimento;
+            case 'finalizado':
+              return c.status == ChamadoStatus.finalizado;
+            case 'todos':
+            default:
+              return true;
+          }
+        }).toList();
+
+        return Container(
+          margin: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4)),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Barra de Filtros e Busca
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    // Campo de Busca Rápida
+                    Expanded(
+                      flex: 2,
+                      child: TextField(
+                        onChanged: (val) => setState(() => _buscaTexto = val.trim()),
+                        decoration: InputDecoration(
+                          hintText: 'Buscar por ATS, cliente, máquina ou técnico...',
+                          hintStyle: const TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
+                          prefixIcon: const Icon(Icons.search, size: 20, color: Color(0xFF64748B)),
+                          filled: true,
+                          fillColor: const Color(0xFFF8FAFC),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
-        const SizedBox(height: 20),
-
-        // Big "Abrir Chamado" Button
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0),
-          child: ElevatedButton.icon(
-            onPressed: () => _showNewTicketBottomSheet(context),
-            icon: const Icon(Icons.add_circle_outline, size: 22),
-            label: const Text(
-              'Abrir Novo Chamado',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF0A369D),
-              foregroundColor: Colors.white,
-              minimumSize: const Size(double.infinity, 56), // Large button
-              elevation: 2,
-              shadowColor: const Color(0xFF0A369D).withOpacity(0.3),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 20),
-
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
-          child: Text(
-            'Aprovações Pendentes',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF0C1A30),
-            ),
-          ),
-        ),
-
-        // List of approvals
-        Expanded(
-          child: _pendingApprovals.isEmpty
-              ? const Center(child: Text('Nenhum relatório aguardando aprovação.'))
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  itemCount: _pendingApprovals.length,
-                  itemBuilder: (context, index) {
-                    final report = _pendingApprovals[index];
-                    return _buildApprovalCard(report, index);
-                  },
+                    const SizedBox(width: 16),
+                    // Filtros por Status (Chips)
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          _buildFilterChip('Todos (${todosChamados.length})', 'todos'),
+                          const SizedBox(width: 8),
+                          _buildFilterChip(
+                            'Aprovados (${todosChamados.where((c) => c.status == ChamadoStatus.aprovadoPendente).length})',
+                            'aprovado_pendente',
+                          ),
+                          const SizedBox(width: 8),
+                          _buildFilterChip(
+                            'Atribuídos (${todosChamados.where((c) => c.status == ChamadoStatus.atribuido).length})',
+                            'atribuido',
+                          ),
+                          const SizedBox(width: 8),
+                          _buildFilterChip(
+                            'Finalizados (${todosChamados.where((c) => c.status == ChamadoStatus.finalizado).length})',
+                            'finalizado',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-        ),
-      ],
+              ),
+
+              const Divider(height: 1, color: Color(0xFFE2E8F0)),
+
+              // Tabela com Scroll Horizontal e Vertical
+              Expanded(
+                child: chamados.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.assignment_late_outlined, size: 48, color: Colors.grey.shade400),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'Nenhum chamado corresponde aos filtros aplicados.',
+                              style: TextStyle(color: Color(0xFF64748B), fontSize: 14),
+                            ),
+                          ],
+                        ),
+                      )
+                    : SingleChildScrollView(
+                        scrollDirection: Axis.vertical,
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: DataTable(
+                            headingRowColor: MaterialStateProperty.all(const Color(0xFFF8FAFC)),
+                            horizontalMargin: 20,
+                            columnSpacing: 24,
+                            columns: const [
+                              DataColumn(label: Text('ATS Nº', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                              DataColumn(label: Text('Cliente / Razão Social', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                              DataColumn(label: Text('Máquina / Equipamento', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                              DataColumn(label: Text('Técnico Responsável', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                              DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                              DataColumn(label: Text('Abertura', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                              DataColumn(label: Text('Ações', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                            ],
+                            rows: chamados.map((c) {
+                              return DataRow(
+                                cells: [
+                                  DataCell(
+                                    Text(
+                                      'ATS-${c.numeroAts}',
+                                      style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0A369D), fontSize: 13),
+                                    ),
+                                  ),
+                                  DataCell(
+                                    Text(c.razaoSocial, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                                  ),
+                                  DataCell(
+                                    Text(c.modeloMaquina ?? 'Em levantamento', style: const TextStyle(fontSize: 12)),
+                                  ),
+                                  DataCell(
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          c.tecnicoNome != null ? Icons.person : Icons.person_outline,
+                                          size: 16,
+                                          color: c.tecnicoNome != null ? const Color(0xFF0A369D) : Colors.grey,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          c.tecnicoNome ?? 'Não atribuído',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: c.tecnicoNome != null ? FontWeight.bold : FontWeight.normal,
+                                            color: c.tecnicoNome != null ? const Color(0xFF1E293B) : const Color(0xFF94A3B8),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  DataCell(_buildStatusBadge(c.status)),
+                                  DataCell(
+                                    Text(_dateFormat.format(c.createdAt), style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                                  ),
+                                  DataCell(
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        // Botão para atribuir / alterar técnico
+                                        OutlinedButton.icon(
+                                          onPressed: () => _abrirModalAtribuirTecnico(context, c),
+                                          icon: const Icon(Icons.engineering, size: 14),
+                                          label: Text(c.tecnicoNome == null ? 'Atribuir' : 'Alterar'),
+                                          style: OutlinedButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                            textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
-  void _showNewTicketBottomSheet(BuildContext context) {
-    final companyController = TextEditingController();
-    final machineController = TextEditingController();
-    final addressController = TextEditingController();
-    final timeController = TextEditingController();
-    
-    String selectedPriority = 'Alta';
-    String selectedTech = _technicians.first['name']!;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+  Widget _buildFilterChip(String label, String valor, {bool isAlert = false}) {
+    final isSelected = _filtroStatus == valor;
+    return ChoiceChip(
+      label: Text(
+        label,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+          color: isSelected ? Colors.white : const Color(0xFF475569),
+        ),
       ),
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            return Padding(
-              padding: EdgeInsets.only(
-                top: 24,
-                left: 24,
-                right: 24,
-                bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      selected: isSelected,
+      onSelected: (val) {
+        if (val) setState(() => _filtroStatus = valor);
+      },
+      selectedColor: const Color(0xFF0A369D),
+      backgroundColor: isAlert ? const Color(0xFFFEF2F2) : const Color(0xFFF1F5F9),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(
+          color: isSelected
+              ? Colors.transparent
+              : (isAlert ? const Color(0xFFEF4444) : const Color(0xFFE2E8F0)),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusBadge(String status) {
+    Color bg = const Color(0xFFF1F5F9);
+    Color fg = const Color(0xFF475569);
+    String label = ChamadoStatus.getLabel(status);
+
+    switch (status) {
+      case ChamadoStatus.finalizado:
+        bg = const Color(0xFFDCFCE7);
+        fg = const Color(0xFF15803D);
+        break;
+      case ChamadoStatus.emAtendimento:
+        bg = const Color(0xFFDBEAFE);
+        fg = const Color(0xFF1D4ED8);
+        break;
+      case ChamadoStatus.atribuido:
+        bg = const Color(0xFFE0E7FF);
+        fg = const Color(0xFF4338CA);
+        break;
+      case ChamadoStatus.aprovadoPendente:
+        bg = const Color(0xFFFEF3C7);
+        fg = const Color(0xFFB45309);
+        break;
+      case ChamadoStatus.orcamentoEnviado:
+        bg = const Color(0xFFF3E8FF);
+        fg = const Color(0xFF7E22CE);
+        break;
+      case ChamadoStatus.novo:
+      default:
+        bg = const Color(0xFFF1F5F9);
+        fg = const Color(0xFF475569);
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(12)),
+      child: Text(
+        label,
+        style: TextStyle(color: fg, fontSize: 11, fontWeight: FontWeight.bold),
+      ),
+    );
+  }
+
+  // ============================================================================
+  // PÁGINA 1: VISÃO GERAL (CARDS DE MÉTRICAS)
+  // ============================================================================
+  Widget _buildVisaoGeralPage() {
+    return ValueListenableBuilder<List<Chamado>>(
+      valueListenable: ChamadosService.instance.chamadosNotifier,
+      builder: (context, chamados, _) {
+        final total = chamados.length;
+        final pendentes = chamados.where((c) => c.status == ChamadoStatus.aprovadoPendente).length;
+        final atribuidos = chamados.where((c) => c.status == ChamadoStatus.atribuido).length;
+        final finalizados = chamados.where((c) => c.status == ChamadoStatus.finalizado).length;
+
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Cards de Métricas em Linha Horizontal
+              Row(
+                children: [
+                  Expanded(child: _buildMetricCard('Total de Chamados', '$total', Icons.assignment, const Color(0xFF0A369D))),
+                  const SizedBox(width: 16),
+                  Expanded(child: _buildMetricCard('Aprovados (Aguardando)', '$pendentes', Icons.warning_amber, const Color(0xFFD97706))),
+                  const SizedBox(width: 16),
+                  Expanded(child: _buildMetricCard('Em Execução / Atribuídos', '$atribuidos', Icons.engineering, const Color(0xFF2563EB))),
+                  const SizedBox(width: 16),
+                  Expanded(child: _buildMetricCard('Finalizados', '$finalizados', Icons.check_circle, const Color(0xFF10B981))),
+                ],
               ),
-              child: SingleChildScrollView(
+              const SizedBox(height: 24),
+
+              // Chamados Recentes em Tabela Rápida
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
                 child: Column(
-                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Text(
-                          'Abrir Novo Chamado',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF0C1A30),
-                          ),
+                          'Últimos Chamados Registrados',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                         ),
-                        IconButton(
-                          onPressed: () => Navigator.pop(context),
-                          icon: const Icon(Icons.close),
+                        TextButton(
+                          onPressed: () => setState(() => _selectedMenuIndex = 1),
+                          child: const Text('Ver todos na tabela →'),
                         ),
                       ],
                     ),
-                    const Divider(height: 24),
-                    
-                    // Empresa/Cliente
-                    const Text('Empresa / Cliente', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF0C1A30))),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: companyController,
-                      decoration: InputDecoration(
-                        hintText: 'Digite o nome da empresa',
-                        hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Modelo da Máquina
-                    const Text('Modelo da Máquina', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF0C1A30))),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: machineController,
-                      decoration: InputDecoration(
-                        hintText: 'Ex: Sopradora Husky H300',
-                        hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Endereço
-                    const Text('Endereço', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF0C1A30))),
-                    const SizedBox(height: 6),
-                    TextField(
-                      controller: addressController,
-                      decoration: InputDecoration(
-                        hintText: 'Endereço completo da assistência',
-                        hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Row with Técnico and Horário
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('Técnico Responsável', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF0C1A30))),
-                              const SizedBox(height: 6),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 12),
-                                decoration: BoxDecoration(
-                                  border: Border.all(color: Colors.grey.shade300),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: DropdownButtonHideUnderline(
-                                  child: DropdownButton<String>(
-                                    value: selectedTech,
-                                    isExpanded: true,
-                                    items: _technicians.map((tech) {
-                                      return DropdownMenuItem<String>(
-                                        value: tech['name'],
-                                        child: Text(tech['name']!, style: const TextStyle(fontSize: 14)),
-                                      );
-                                    }).toList(),
-                                    onChanged: (val) {
-                                      if (val != null) {
-                                        setModalState(() {
-                                          selectedTech = val;
-                                        });
-                                      }
-                                    },
-                                  ),
-                                ),
-                              ),
-                            ],
+                    const SizedBox(height: 12),
+                    ...chamados.take(5).map((c) => ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: CircleAvatar(
+                            backgroundColor: const Color(0xFFEFF6FF),
+                            child: Text(c.numeroAts.substring(c.numeroAts.length - 2), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF0A369D))),
                           ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('Horário Agendado', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF0C1A30))),
-                              const SizedBox(height: 6),
-                              TextField(
-                                controller: timeController,
-                                decoration: InputDecoration(
-                                  hintText: 'Ex: 09:00 - 11:30',
-                                  hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
-                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Prioridade
-                    const Text('Prioridade', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF0C1A30))),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: ['Alta', 'Média', 'Baixa'].map((priority) {
-                        final isSelected = selectedPriority == priority;
-                        Color chipColor;
-                        Color textColor;
-                        if (priority == 'Alta') {
-                          chipColor = isSelected ? Colors.redAccent : Colors.redAccent.withOpacity(0.1);
-                          textColor = isSelected ? Colors.white : Colors.redAccent.shade700;
-                        } else if (priority == 'Média') {
-                          chipColor = isSelected ? Colors.orangeAccent : Colors.orangeAccent.withOpacity(0.1);
-                          textColor = isSelected ? Colors.white : Colors.orangeAccent.shade700;
-                        } else {
-                          chipColor = isSelected ? Colors.blueAccent : Colors.blueAccent.withOpacity(0.1);
-                          textColor = isSelected ? Colors.white : Colors.blueAccent.shade700;
-                        }
-
-                        return GestureDetector(
-                          onTap: () {
-                            setModalState(() {
-                              selectedPriority = priority;
-                            });
-                          },
-                          child: Container(
-                            margin: const EdgeInsets.only(right: 12),
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                            decoration: BoxDecoration(
-                              color: chipColor,
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: isSelected ? Colors.transparent : chipColor.withOpacity(0.4),
-                              ),
-                            ),
-                            child: Text(
-                              priority,
-                              style: TextStyle(
-                                color: textColor,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                    const SizedBox(height: 32),
-
-                    // Button to submit
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: () {
-                          if (companyController.text.trim().isEmpty ||
-                              machineController.text.trim().isEmpty ||
-                              addressController.text.trim().isEmpty) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Por favor, preencha todos os campos obrigatórios.'),
-                                backgroundColor: Colors.redAccent,
-                              ),
-                            );
-                            return;
-                          }
-
-                          Navigator.pop(context);
-
-                          // Show success dialog
-                          showDialog(
-                            context: context,
-                            builder: (context) => AlertDialog(
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                              title: const Row(
-                                children: [
-                                  Icon(Icons.check_circle, color: Colors.green),
-                                  SizedBox(width: 8),
-                                  Text('Chamado Aberto'),
-                                ],
-                              ),
-                              content: Text(
-                                'Chamado para "${companyController.text}" foi criado com sucesso e atribuído ao técnico $selectedTech!',
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(context),
-                                  child: const Text('OK'),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF0A369D),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        child: const Text(
-                          'Criar Chamado',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ),
+                          title: Text(c.razaoSocial, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                          subtitle: Text('Máquina: ${c.modeloMaquina ?? "N/A"} • Técnico: ${c.tecnicoNome ?? "Pendente"}', style: const TextStyle(fontSize: 12)),
+                          trailing: _buildStatusBadge(c.status),
+                        )),
                   ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildMetricCard(String title, String valor, IconData icon, Color cor) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 8, offset: const Offset(0, 2)),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: cor.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+            child: Icon(icon, color: cor, size: 24),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w600)),
+                const SizedBox(height: 4),
+                Text(valor, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================================
+  // PÁGINA 2: EQUIPE TÉCNICA
+  // ============================================================================
+  Widget _buildEquipeTecnicaPage() {
+    return ValueListenableBuilder<List<Chamado>>(
+      valueListenable: ChamadosService.instance.chamadosNotifier,
+      builder: (context, chamados, _) {
+        return ListView.builder(
+          padding: const EdgeInsets.all(20),
+          itemCount: _tecnicosDisponiveis.length,
+          itemBuilder: (context, index) {
+            final nome = _tecnicosDisponiveis[index];
+            final chamadosDoTecnico = chamados.where((c) => c.tecnicoNome == nome).toList();
+            final emAndamento = chamadosDoTecnico.where((c) => c.status != ChamadoStatus.finalizado).length;
+
+            return Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              elevation: 1,
+              child: ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: const Color(0xFF0A369D),
+                  child: Text(nome[0], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+                title: Text(nome, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                subtitle: Text(
+                  emAndamento > 0
+                      ? 'Em atendimento ($emAndamento ordem(ns) atribuída(s))'
+                      : 'Disponível para novos atendimentos',
+                  style: TextStyle(
+                    color: emAndamento > 0 ? const Color(0xFF1D4ED8) : _emerald,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                trailing: Chip(
+                  label: Text('$emAndamento O.S. ativas', style: const TextStyle(fontSize: 11)),
+                  backgroundColor: const Color(0xFFF1F5F9),
                 ),
               ),
             );
@@ -578,312 +718,259 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
     );
   }
 
-  Widget _buildStatCard(String label, String value, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Icon(icon, color: color, size: 24),
-              Text(
-                value,
-                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF0C1A30)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(label, style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w600)),
-        ],
-      ),
-    );
-  }
+  // ============================================================================
+  // MODAL: CRIAR E ATRIBUIR NOVO SERVIÇO AO TÉCNICO
+  // ============================================================================
+  void _abrirModalCriarEAtribuir(BuildContext context) {
+    final formKey = GlobalKey<FormState>();
+    final clienteCtrl = TextEditingController();
+    final telefoneCtrl = TextEditingController();
+    final maquinaCtrl = TextEditingController();
+    final defeitoCtrl = TextEditingController();
+    String tecnicoSelecionado = _tecnicosDisponiveis.first;
 
-  Widget _buildApprovalCard(Map<String, String> report, int index) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                report["id"]!,
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey.shade500),
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              title: const Row(
+                children: [
+                  Icon(Icons.add_task, color: Color(0xFF0A369D)),
+                  SizedBox(width: 8),
+                  Text('Criar e Atribuir Novo Serviço', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ],
               ),
-              Text(
-                report["date"]!,
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            report["client"]!,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0C1A30)),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Técnico: ${report["tech"]!}',
-            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-          ),
-          Text(
-            'Duração total: ${report["hours"]!}',
-            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-          ),
-          const Divider(height: 24, thickness: 0.5),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              TextButton(
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Relatório visualizado em detalhes.'),
-                      backgroundColor: Color(0xFF0A369D),
-                    ),
-                  );
-                },
-                child: const Text('Ver Detalhes', style: TextStyle(color: Color(0xFF0A369D))),
-              ),
-              const SizedBox(width: 8),
-              ElevatedButton(
-                onPressed: () {
-                  setState(() {
-                    _pendingApprovals.removeAt(index);
-                  });
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Relatório ${report["id"]} aprovado com sucesso!'),
-                      backgroundColor: _emerald,
-                    ),
-                  );
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _emerald,
-                  foregroundColor: Colors.white,
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                child: const Text('Aprovar'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  // PAGE 2: EQUIPE (TECHNICIANS)
-  Widget _buildEquipePage() {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Status da Equipe',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0C1A30)),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Acompanhe em tempo real a situação de cada técnico.',
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
-          ),
-          const SizedBox(height: 20),
-          Expanded(
-            child: ListView.builder(
-              itemCount: _technicians.length,
-              itemBuilder: (context, index) {
-                final tech = _technicians[index];
-                Color statusColor;
-                switch (tech["status"]!) {
-                  case 'Em Campo':
-                    statusColor = Colors.orangeAccent;
-                    break;
-                  case 'Disponível':
-                    statusColor = _emerald;
-                    break;
-                  default:
-                    statusColor = Colors.grey;
-                }
-
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.grey.shade200),
-                  ),
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    leading: const CircleAvatar(
-                      backgroundColor: Color(0xFFEFF6FF),
-                      child: Icon(Icons.engineering, color: Color(0xFF0A369D)),
-                    ),
-                    title: Text(
-                      tech["name"]!,
-                      style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0C1A30)),
-                    ),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+              content: SizedBox(
+                width: 500,
+                child: Form(
+                  key: formKey,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        const SizedBox(height: 4),
-                        Text(
-                          tech["status"] == 'Em Campo' ? 'Serviço: ${tech["job"]!}' : 'Aguardando chamados',
-                          style: const TextStyle(fontSize: 12),
+                        TextFormField(
+                          controller: clienteCtrl,
+                          autofocus: true,
+                          decoration: InputDecoration(
+                            labelText: 'Cliente / Solicitante *',
+                            hintText: 'Ex: Metalúrgica Haas / Roberto',
+                            filled: true,
+                            fillColor: const Color(0xFFF8FAFC),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          ),
+                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Informe o cliente' : null,
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextFormField(
+                                controller: telefoneCtrl,
+                                decoration: InputDecoration(
+                                  labelText: 'Telefone / WhatsApp',
+                                  hintText: '(47) 99999-0000',
+                                  filled: true,
+                                  fillColor: const Color(0xFFF8FAFC),
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: TextFormField(
+                                controller: maquinaCtrl,
+                                decoration: InputDecoration(
+                                  labelText: 'Máquina / Modelo',
+                                  hintText: 'Ex: Haas CNC ST-20',
+                                  filled: true,
+                                  fillColor: const Color(0xFFF8FAFC),
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: defeitoCtrl,
+                          maxLines: 2,
+                          decoration: InputDecoration(
+                            labelText: 'Defeito Breve / Ocorrência',
+                            hintText: 'Descreva a anomalia informada',
+                            filled: true,
+                            fillColor: const Color(0xFFF8FAFC),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                            contentPadding: const EdgeInsets.all(12),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+
+                        // Seleção de Técnico Responsável
+                        DropdownButtonFormField<String>(
+                          value: tecnicoSelecionado,
+                          decoration: InputDecoration(
+                            labelText: 'Técnico Responsável *',
+                            filled: true,
+                            fillColor: const Color(0xFFF8FAFC),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          ),
+                          items: _tecnicosDisponiveis.map((t) {
+                            return DropdownMenuItem(value: t, child: Text(t));
+                          }).toList(),
+                          onChanged: (val) {
+                            if (val != null) setDialogState(() => tecnicoSelecionado = val);
+                          },
                         ),
                       ],
                     ),
-                    trailing: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: statusColor.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        tech["status"]!,
-                        style: TextStyle(color: statusColor, fontSize: 10, fontWeight: FontWeight.bold),
-                      ),
-                    ),
                   ),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogCtx),
+                  child: const Text('Cancelar'),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    if (formKey.currentState!.validate()) {
+                      Navigator.pop(dialogCtx);
+
+                      // 1. Cria o chamado
+                      final novo = await ChamadosService.instance.criarNovoChamado(
+                        contato: clienteCtrl.text.trim(),
+                        telefone: telefoneCtrl.text.trim(),
+                        modeloMaquina: maquinaCtrl.text.trim(),
+                        defeitoRelatado: defeitoCtrl.text.trim(),
+                      );
+
+                      // 2. Atribui o técnico instantaneamente
+                      await ChamadosService.instance.atribuirTecnico(
+                        chamadoId: novo.id,
+                        tecnicoNome: tecnicoSelecionado,
+                      );
+
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('O.S. Nº ${novo.numeroAts} criada e atribuída a $tecnicoSelecionado!'),
+                            backgroundColor: const Color(0xFF10B981),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0A369D),
+                    foregroundColor: Colors.white,
+                  ),
+                  child: const Text('Salvar e Atribuir'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
-  // PAGE 3: PERFIL (PROFILE & SETTINGS)
-  Widget _buildPerfilPage() {
-    final user = Supabase.instance.client.auth.currentUser;
-    final email = user?.email ?? "gerente@atsservicos.com.br";
+  // ============================================================================
+  // MODAL: ATRIBUIR TÉCNICO A UM CHAMADO EXISTENTE
+  // ============================================================================
+  void _abrirModalAtribuirTecnico(BuildContext context, Chamado chamado) {
+    String tecnicoSelecionado = chamado.tecnicoNome ?? _tecnicosDisponiveis.first;
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24.0),
-      child: Column(
-        children: [
-          // Profile Pic Avatar
-          Container(
-            padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.white,
-              border: Border.all(color: const Color(0xFF0A369D), width: 2),
-            ),
-            child: const CircleAvatar(
-              radius: 48,
-              backgroundColor: Color(0xFFEFF6FF),
-              child: Icon(Icons.admin_panel_settings, size: 52, color: Color(0xFF0A369D)),
-            ),
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'Gerente Geral',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0C1A30)),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            email,
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
-          ),
-          const SizedBox(height: 32),
-
-          // Actions List
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.grey.shade200),
-            ),
-            child: Column(
-              children: [
-                _buildProfileItem(Icons.analytics, 'Relatórios Analíticos'),
-                const Divider(height: 1, thickness: 0.5),
-                _buildProfileItem(Icons.rule, 'Políticas de Aprovação'),
-                const Divider(height: 1, thickness: 0.5),
-                _buildProfileItem(Icons.help_outline, 'Suporte Administrativo'),
-              ],
-            ),
-          ),
-          const SizedBox(height: 32),
-
-          // Sign out button
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () => _showLogoutDialog(context),
-              icon: const Icon(Icons.logout),
-              label: const Text('Sair da Conta'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.redAccent.shade100.withOpacity(0.1),
-                foregroundColor: Colors.redAccent,
-                elevation: 0,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  side: const BorderSide(color: Colors.redAccent, width: 0.5),
-                ),
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              title: Text('Atribuir Técnico - ATS Nº ${chamado.numeroAts}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Cliente: ${chamado.razaoSocial}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  const SizedBox(height: 4),
+                  Text('Máquina: ${chamado.modeloMaquina ?? "N/A"}', style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    value: tecnicoSelecionado,
+                    decoration: InputDecoration(
+                      labelText: 'Selecione o Técnico',
+                      filled: true,
+                      fillColor: const Color(0xFFF8FAFC),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    items: _tecnicosDisponiveis.map((t) {
+                      return DropdownMenuItem(value: t, child: Text(t));
+                    }).toList(),
+                    onChanged: (val) {
+                      if (val != null) setDialogState(() => tecnicoSelecionado = val);
+                    },
+                  ),
+                ],
               ),
-            ),
-          ),
-        ],
-      ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancelar')),
+                ElevatedButton(
+                  onPressed: () async {
+                    Navigator.pop(dialogCtx);
+                    await ChamadosService.instance.atribuirTecnico(
+                      chamadoId: chamado.id,
+                      tecnicoNome: tecnicoSelecionado,
+                    );
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Técnico $tecnicoSelecionado atribuído à ATS Nº ${chamado.numeroAts}!'),
+                          backgroundColor: const Color(0xFF10B981),
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0A369D), foregroundColor: Colors.white),
+                  child: const Text('Confirmar Atribuição'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
   void _showLogoutDialog(BuildContext context) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Sair'),
-        content: const Text('Deseja realmente sair da sua conta?'),
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sair do Sistema'),
+        content: const Text('Deseja realmente encerrar a sessão de gestão?'),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          TextButton(
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancelar')),
+          ElevatedButton(
             onPressed: () async {
-              Navigator.pop(context);
-              AppAuthState.bypassAuth = false;
-              if (widget.onLogout != null) {
-                widget.onLogout!();
-              }
+              Navigator.pop(ctx);
+              if (widget.onLogout != null) widget.onLogout!();
               await Supabase.instance.client.auth.signOut();
             },
-            child: const Text(
-              'Sair',
-              style: TextStyle(color: Colors.redAccent),
-            ),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEF4444), foregroundColor: Colors.white),
+            child: const Text('Sair'),
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildProfileItem(IconData icon, String title) {
-    return ListTile(
-      leading: Icon(icon, color: Colors.grey.shade600),
-      title: Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-      trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
-      onTap: () {},
     );
   }
 }

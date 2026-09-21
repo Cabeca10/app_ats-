@@ -79,7 +79,7 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
     try {
       final response = await Supabase.instance.client
           .from('chamados')
-          .select()
+          .select(Chamado.selectColumnsCompletas)
           .eq('token_url', widget.token)
           .maybeSingle();
 
