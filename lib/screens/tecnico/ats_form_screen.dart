@@ -7,6 +7,7 @@ import 'package:signature/signature.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/chamado.dart';
 import '../../models/log_horas_custos.dart';
+import '../../models/dia_trabalho.dart';
 import '../../services/ats_pdf_service.dart';
 import '../../services/chamados_service.dart';
 import '../../services/offline_storage_service.dart';
@@ -43,10 +44,8 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
   late String _numeroSerie;
   late String _defeitoRelatado;
 
-  // 2. Horas e Custos
-  DateTime _dataAtendimento = DateTime.now();
-  TimeOfDay _horaInicio = const TimeOfDay(hour: 8, minute: 0);
-  TimeOfDay _horaFim = const TimeOfDay(hour: 17, minute: 0);
+  // 2. Dias Trabalhados e Despesas
+  List<DiaTrabalho> _diasTrabalho = [];
   final _kmRodadoCtrl = TextEditingController(text: '0.0');
   final _pedagioCtrl = TextEditingController(text: '0.00');
   final _refeicaoCtrl = TextEditingController(text: '0.00');
@@ -107,6 +106,24 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       _defeitoRelatado = 'Falha no servo acionamento eixo Z';
     }
 
+    // Inicializa lista de dias trabalhados
+    if (widget.chamado != null && widget.chamado!.diasTrabalho.isNotEmpty) {
+      _diasTrabalho = List.from(widget.chamado!.diasTrabalho);
+    } else {
+      _diasTrabalho = [
+        DiaTrabalho(
+          chamadoId: _chamadoId,
+          data: DateTime.now(),
+          horaInicio: '08:00',
+          horaFim: '17:00',
+          horaAlmoco: '01:00',
+          horaViagem: '00:00',
+          numeroTecnicos: 1,
+          nomesTecnicos: widget.chamado?.tecnicoNome ?? 'Técnico Responsável',
+        ),
+      ];
+    }
+
     // Tenta restaurar dados locais offline previamente salvos se houver
     _carregarRascunhoLocal();
   }
@@ -129,6 +146,14 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         }
         if (offlineData['responsavel_nome'] != null) {
           _responsavelNomeCtrl.text = offlineData['responsavel_nome'].toString();
+        }
+        if (offlineData['dias_trabalho'] != null && (offlineData['dias_trabalho'] is List)) {
+          final list = (offlineData['dias_trabalho'] as List)
+              .map((e) => DiaTrabalho.fromMap(Map<String, dynamic>.from(e as Map)))
+              .toList();
+          if (list.isNotEmpty) {
+            _diasTrabalho = list;
+          }
         }
       });
     }
@@ -227,10 +252,10 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       _isSubmitting = true;
     });
 
-    final horaInicioStr =
-        '${_horaInicio.hour.toString().padLeft(2, '0')}:${_horaInicio.minute.toString().padLeft(2, '0')}';
-    final horaFimStr =
-        '${_horaFim.hour.toString().padLeft(2, '0')}:${_horaFim.minute.toString().padLeft(2, '0')}';
+    final primeiroDia = _diasTrabalho.isNotEmpty ? _diasTrabalho.first : null;
+    final dataAtendimento = primeiroDia?.data ?? DateTime.now();
+    final horaInicioStr = primeiroDia?.horaInicio ?? '08:00';
+    final horaFimStr = primeiroDia?.horaFim ?? '17:00';
     final kmRodado = double.tryParse(_kmRodadoCtrl.text.replaceAll(',', '.')) ?? 0.0;
     final pedagio = double.tryParse(_pedagioCtrl.text.replaceAll(',', '.')) ?? 0.0;
     final refeicao = double.tryParse(_refeicaoCtrl.text.replaceAll(',', '.')) ?? 0.0;
@@ -238,7 +263,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
     final logHoras = LogHorasCustos(
       id: 'log-${DateTime.now().millisecondsSinceEpoch}',
       idChamado: _chamadoId,
-      data: _dataAtendimento,
+      data: dataAtendimento,
       horaInicio: horaInicioStr,
       horaFim: horaFimStr,
       kmRodado: kmRodado,
@@ -265,7 +290,8 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       'chamado_id': _chamadoId,
       'numero_ats': _numeroAts,
       'razao_social': _razaoSocial,
-      'data_atendimento': _dataAtendimento.toIso8601String(),
+      'dias_trabalho': _diasTrabalho.map((d) => d.toMap()).toList(),
+      'data_atendimento': dataAtendimento.toIso8601String(),
       'hora_inicio': horaInicioStr,
       'hora_fim': horaFimStr,
       'km_rodado': kmRodado,
@@ -407,6 +433,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       final pdfBytes = await AtsPdfService.instance.gerarRelatorioAtsPdf(
         chamado: chamadoAtual,
         logHoras: logHoras,
+        diasTrabalho: _diasTrabalho,
         servicoExecutado: _servicoExecutadoCtrl.text.trim(),
         assinaturaBytes: assinaturaBytes,
         responsavelNome: _responsavelNomeCtrl.text.trim(),
@@ -449,16 +476,32 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         if (_chamadoId.isNotEmpty && !_chamadoId.startsWith('c-')) {
           await client.from('log_horas_custos').insert({
             'id_chamado': _chamadoId,
-            'data': '${_dataAtendimento.year.toString().padLeft(4, '0')}-${_dataAtendimento.month.toString().padLeft(2, '0')}-${_dataAtendimento.day.toString().padLeft(2, '0')}',
+            'data': '${dataAtendimento.year.toString().padLeft(4, '0')}-${dataAtendimento.month.toString().padLeft(2, '0')}-${dataAtendimento.day.toString().padLeft(2, '0')}',
             'hora_inicio': horaInicioStr,
             'hora_fim': horaFimStr,
             'km_rodado': kmRodado,
             'pedagio': pedagio,
             'refeicao': refeicao,
           });
+
+          // Gravação dos múltiplos dias em ats_dias_trabalho
+          await client.from('ats_dias_trabalho').delete().eq('chamado_id', _chamadoId);
+          if (_diasTrabalho.isNotEmpty) {
+            final diasRows = _diasTrabalho.map((d) => {
+              'chamado_id': _chamadoId,
+              'data': '${d.data.year.toString().padLeft(4, '0')}-${d.data.month.toString().padLeft(2, '0')}-${d.data.day.toString().padLeft(2, '0')}',
+              'hora_inicio': d.horaInicio,
+              'hora_fim': d.horaFim ?? '17:00',
+              'hora_almoco': d.horaAlmoco,
+              'hora_viagem': d.horaViagem,
+              'numero_tecnicos': d.numeroTecnicos,
+              'nomes_tecnicos': d.nomesTecnicos.trim().isNotEmpty ? d.nomesTecnicos.trim() : 'Técnico Responsável',
+            }).toList();
+            await client.from('ats_dias_trabalho').insert(diasRows);
+          }
         }
       } catch (logErr) {
-        debugPrint('Aviso inserção log_horas_custos: $logErr');
+        debugPrint('Aviso inserção log_horas_custos / ats_dias_trabalho: $logErr');
       }
 
       // G. Marca sincronizado localmente
@@ -537,9 +580,15 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
                 const SizedBox(height: 16),
 
                 // -------------------------------------------------------------
-                // SEÇÃO 2: HORAS / CUSTOS (CAMPOS NUMÉRICOS)
+                // SEÇÃO 2: DIAS TRABALHADOS E HORAS (MÚLTIPLOS DIAS INTERCALADOS)
                 // -------------------------------------------------------------
-                _buildCardHorasCustos(dateFormat),
+                _buildSecaoDiasTrabalhados(dateFormat),
+                const SizedBox(height: 16),
+
+                // -------------------------------------------------------------
+                // SEÇÃO 2.1: DESPESAS GERAIS DE DESLOCAMENTO
+                // -------------------------------------------------------------
+                _buildCardDespesasGerais(),
                 const SizedBox(height: 16),
 
                 // -------------------------------------------------------------
@@ -677,8 +726,399 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
     );
   }
 
-  /// SEÇÃO 2: Horas e Custos (campos numéricos)
-  Widget _buildCardHorasCustos(DateFormat dateFormat) {
+  // ============================================================================
+  // GESTÃO DINÂMICA DE DIAS DE TRABALHO
+  // ============================================================================
+
+  void _adicionarDiaTrabalho() {
+    setState(() {
+      DateTime proximaData = DateTime.now();
+      String nomesAnteriores = widget.chamado?.tecnicoNome ?? 'Técnico Responsável';
+
+      if (_diasTrabalho.isNotEmpty) {
+        final ultimo = _diasTrabalho.last;
+        proximaData = ultimo.data.add(const Duration(days: 1));
+        nomesAnteriores = ultimo.nomesTecnicos;
+      }
+
+      _diasTrabalho.add(
+        DiaTrabalho(
+          chamadoId: _chamadoId,
+          data: proximaData,
+          horaInicio: '08:00',
+          horaFim: '17:00',
+          horaAlmoco: '01:00',
+          horaViagem: '00:00',
+          numeroTecnicos: 1,
+          nomesTecnicos: nomesAnteriores,
+        ),
+      );
+    });
+  }
+
+  void _removerDiaTrabalho(int index) {
+    if (_diasTrabalho.length <= 1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('O atendimento deve conter pelo menos 1 dia de trabalho registrado.'),
+          backgroundColor: Color(0xFFD97706),
+        ),
+      );
+      return;
+    }
+    setState(() {
+      _diasTrabalho.removeAt(index);
+    });
+  }
+
+  Future<void> _selecionarHorarioParaDia({
+    required int index,
+    required String label,
+    required String horarioAtual,
+    required Function(String) onAtualizado,
+  }) async {
+    final partes = horarioAtual.split(':');
+    final h = partes.isNotEmpty ? (int.tryParse(partes[0]) ?? 8) : 8;
+    final m = partes.length > 1 ? (int.tryParse(partes[1]) ?? 0) : 0;
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(hour: h, minute: m),
+      builder: (context, child) {
+        return MediaQuery(
+          data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null) {
+      final formatado = '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+      setState(() {
+        onAtualizado(formatado);
+      });
+    }
+  }
+
+  /// SEÇÃO 2: Dias de Atendimento e Horas (Grade Dinâmica)
+  Widget _buildSecaoDiasTrabalhados(DateFormat dateFormat) {
+    int totalMinutosLiquidos = 0;
+    for (var d in _diasTrabalho) {
+      totalMinutosLiquidos += d.horasLiquidasMinutos;
+    }
+    final totalFormatado = DiaTrabalho.formatarMinutos(totalMinutosLiquidos);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 8, offset: const Offset(0, 2)),
+        ],
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Cabeçalho da Seção com Botão de Adicionar
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.calendar_month_outlined, color: Color(0xFF0A369D), size: 22),
+                  SizedBox(width: 8),
+                  Text(
+                    'Dias de Atendimento e Horas',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                  ),
+                ],
+              ),
+              TextButton.icon(
+                onPressed: _adicionarDiaTrabalho,
+                icon: const Icon(Icons.add_circle, size: 18, color: Color(0xFF0A369D)),
+                label: const Text(
+                  '+ Adicionar Dia',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0A369D)),
+                ),
+                style: TextButton.styleFrom(
+                  backgroundColor: const Color(0xFFEFF6FF),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // Lista de Cartões de Dias Trabalhados
+          ..._diasTrabalho.asMap().entries.map((entry) {
+            final int idx = entry.key;
+            final DiaTrabalho dia = entry.value;
+
+            return Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Linha de Título do Dia + Chips de Status + Lixeira
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF0A369D),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          'Dia ${idx + 1}',
+                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFECFDF5),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: const Color(0xFFA7F3D0)),
+                        ),
+                        child: Text(
+                          'Líquido: ${dia.horasLiquidasFormatadas}',
+                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF065F46)),
+                        ),
+                      ),
+                      if (dia.horasViagemMinutos > 0) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEFF6FF),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: const Color(0xFFBFDBFE)),
+                          ),
+                          child: Text(
+                            'Viagem: ${dia.horasViagemFormatadas}',
+                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF1D4ED8)),
+                          ),
+                        ),
+                      ],
+                      const Spacer(),
+                      if (_diasTrabalho.length > 1)
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline, color: Color(0xFFDC2626), size: 20),
+                          tooltip: 'Remover este dia',
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          onPressed: () => _removerDiaTrabalho(idx),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Seletor de Data Específica do Dia
+                  InkWell(
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: dia.data,
+                        firstDate: DateTime(2025),
+                        lastDate: DateTime(2030),
+                      );
+                      if (picked != null) {
+                        setState(() {
+                          _diasTrabalho[idx] = dia.copyWith(data: picked);
+                        });
+                      }
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFFCBD5E1)),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.calendar_today, size: 15, color: Color(0xFF0A369D)),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Data do Atendimento: ${dia.dataFormatada}',
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF1E293B)),
+                              ),
+                            ],
+                          ),
+                          const Text(
+                            'Alterar Data',
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF0A369D)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Grade de 4 Seletores de Horário: Início, Fim, Almoço, Viagem
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildTimePickerTile(
+                          label: 'Início Expediente',
+                          timeText: dia.horaInicio,
+                          icon: Icons.play_arrow_outlined,
+                          onTap: () => _selecionarHorarioParaDia(
+                            index: idx,
+                            label: 'Hora Início',
+                            horarioAtual: dia.horaInicio,
+                            onAtualizado: (val) => _diasTrabalho[idx] = dia.copyWith(horaInicio: val),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _buildTimePickerTile(
+                          label: 'Fim Expediente',
+                          timeText: dia.horaFim ?? '17:00',
+                          icon: Icons.stop_outlined,
+                          onTap: () => _selecionarHorarioParaDia(
+                            index: idx,
+                            label: 'Hora Fim',
+                            horarioAtual: dia.horaFim ?? '17:00',
+                            onAtualizado: (val) => _diasTrabalho[idx] = dia.copyWith(horaFim: val),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildTimePickerTile(
+                          label: 'Tempo Almoço',
+                          timeText: dia.horaAlmoco,
+                          icon: Icons.restaurant_outlined,
+                          onTap: () => _selecionarHorarioParaDia(
+                            index: idx,
+                            label: 'Tempo de Almoço',
+                            horarioAtual: dia.horaAlmoco,
+                            onAtualizado: (val) => _diasTrabalho[idx] = dia.copyWith(horaAlmoco: val),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _buildTimePickerTile(
+                          label: 'Tempo Viagem / Deslocamento',
+                          timeText: dia.horaViagem,
+                          icon: Icons.directions_car_outlined,
+                          onTap: () => _selecionarHorarioParaDia(
+                            index: idx,
+                            label: 'Tempo de Deslocamento',
+                            horarioAtual: dia.horaViagem,
+                            onAtualizado: (val) => _diasTrabalho[idx] = dia.copyWith(horaViagem: val),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Alocação da Equipe Técnica: Nº de Técnicos e Nomes
+                  Row(
+                    children: [
+                      SizedBox(
+                        width: 95,
+                        child: TextFormField(
+                          initialValue: dia.numeroTecnicos.toString(),
+                          keyboardType: TextInputType.number,
+                          decoration: InputDecoration(
+                            labelText: 'Nº Técnicos',
+                            filled: true,
+                            fillColor: Colors.white,
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                          ),
+                          onChanged: (val) {
+                            final parsed = int.tryParse(val) ?? 1;
+                            _diasTrabalho[idx] = dia.copyWith(numeroTecnicos: parsed > 0 ? parsed : 1);
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextFormField(
+                          initialValue: dia.nomesTecnicos,
+                          decoration: InputDecoration(
+                            labelText: 'Nomes dos Técnicos Alocados',
+                            hintText: 'Ex: Ricardo / Santin',
+                            filled: true,
+                            fillColor: Colors.white,
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                          ),
+                          onChanged: (val) {
+                            _diasTrabalho[idx] = dia.copyWith(nomesTecnicos: val);
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          }),
+
+          // Resumo Geral das Horas do Atendimento
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF1F5F9),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Total: ${_diasTrabalho.length} dia(s) registrado(s)',
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
+                ),
+                Text(
+                  'Total Líquido: $totalFormatado',
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0A369D)),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // Botão Secundário de Inclusão de Novo Dia
+          OutlinedButton.icon(
+            onPressed: _adicionarDiaTrabalho,
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text('+ Adicionar Outro Dia de Atendimento'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF0A369D),
+              side: const BorderSide(color: Color(0xFF0A369D)),
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// SEÇÃO 2.1: Despesas Gerais do Atendimento (KM, Pedágio, Refeição)
+  Widget _buildCardDespesasGerais() {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -694,77 +1134,15 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         children: [
           const Row(
             children: [
-              Icon(Icons.timer_outlined, color: Color(0xFF0A369D), size: 20),
+              Icon(Icons.directions_car_outlined, color: Color(0xFF0A369D), size: 20),
               SizedBox(width: 8),
               Text(
-                'Apontamento de Horas e Despesas',
+                'Despesas Gerais do Atendimento',
                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
               ),
             ],
           ),
           const SizedBox(height: 14),
-
-          // Seletor de Data
-          InkWell(
-            onTap: () async {
-              final picked = await showDatePicker(
-                context: context,
-                initialDate: _dataAtendimento,
-                firstDate: DateTime(2025),
-                lastDate: DateTime(2030),
-              );
-              if (picked != null) {
-                setState(() => _dataAtendimento = picked);
-              }
-            },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFFCBD5E1)),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('Data do Atendimento: ${dateFormat.format(_dataAtendimento)}',
-                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                  const Icon(Icons.calendar_today, size: 16, color: Color(0xFF0A369D)),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          // Horários Início e Fim
-          Row(
-            children: [
-              Expanded(
-                child: _buildTimePickerTile(
-                  label: 'Hora Início',
-                  time: _horaInicio,
-                  onTap: () async {
-                    final t = await showTimePicker(context: context, initialTime: _horaInicio);
-                    if (t != null) setState(() => _horaInicio = t);
-                  },
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildTimePickerTile(
-                  label: 'Hora Fim',
-                  time: _horaFim,
-                  onTap: () async {
-                    final t = await showTimePicker(context: context, initialTime: _horaFim);
-                    if (t != null) setState(() => _horaFim = t);
-                  },
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-
-          // Campos Numéricos: Km, Pedágio e Refeição
           Row(
             children: [
               Expanded(
@@ -818,30 +1196,35 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
     );
   }
 
-  Widget _buildTimePickerTile({required String label, required TimeOfDay time, required VoidCallback onTap}) {
+  Widget _buildTimePickerTile({
+    required String label,
+    required String timeText,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(8),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
-          color: const Color(0xFFF8FAFC),
+          color: Colors.white,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(color: const Color(0xFFCBD5E1)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+            Text(label, style: const TextStyle(fontSize: 10, color: Color(0xFF64748B), fontWeight: FontWeight.w500)),
             const SizedBox(height: 2),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}',
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                  timeText,
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
                 ),
-                const Icon(Icons.access_time, size: 16, color: Color(0xFF64748B)),
+                Icon(icon, size: 15, color: const Color(0xFF0A369D)),
               ],
             ),
           ],

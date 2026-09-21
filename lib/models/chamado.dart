@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dia_trabalho.dart';
 
 /// Status possíveis do chamado no fluxo operacional
 class ChamadoStatus {
@@ -90,6 +91,9 @@ class Chamado {
   final String? tecnicoId;
   final String? tecnicoNome;
 
+  // Dias de Trabalho / Apontamentos no ATS
+  final List<DiaTrabalho> diasTrabalho;
+
   // Auditoria
   final DateTime createdAt;
   final DateTime? updatedAt;
@@ -130,6 +134,7 @@ class Chamado {
     this.pendingSync = false,
     this.tecnicoId,
     this.tecnicoNome,
+    this.diasTrabalho = const [],
     DateTime? createdAt,
     this.updatedAt,
   }) : createdAt = createdAt ?? DateTime.now();
@@ -170,6 +175,7 @@ class Chamado {
     bool? pendingSync,
     String? tecnicoId,
     String? tecnicoNome,
+    List<DiaTrabalho>? diasTrabalho,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -209,6 +215,7 @@ class Chamado {
       pendingSync: pendingSync ?? this.pendingSync,
       tecnicoId: tecnicoId ?? this.tecnicoId,
       tecnicoNome: tecnicoNome ?? this.tecnicoNome,
+      diasTrabalho: diasTrabalho ?? this.diasTrabalho,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -251,6 +258,7 @@ class Chamado {
       'pending_sync': pendingSync,
       'tecnico_id': tecnicoId,
       'tecnico_nome': tecnicoNome,
+      'dias_trabalho': diasTrabalho.map((d) => d.toMap()).toList(),
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt?.toIso8601String(),
     };
@@ -293,6 +301,11 @@ class Chamado {
       pendingSync: map['pending_sync'] == true,
       tecnicoId: map['tecnico_id'],
       tecnicoNome: map['tecnico_nome'],
+      diasTrabalho: map['dias_trabalho'] != null
+          ? (map['dias_trabalho'] as List)
+              .map((item) => DiaTrabalho.fromMap(Map<String, dynamic>.from(item as Map)))
+              .toList()
+          : const [],
       createdAt: map['created_at'] != null ? DateTime.parse(map['created_at']) : DateTime.now(),
       updatedAt: map['updated_at'] != null ? DateTime.tryParse(map['updated_at']) : null,
     );

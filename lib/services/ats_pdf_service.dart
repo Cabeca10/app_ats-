@@ -5,6 +5,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import '../models/chamado.dart';
 import '../models/log_horas_custos.dart';
+import '../models/dia_trabalho.dart';
 
 /// Serviço para geração do relatório técnico industrial (ATS) em PDF
 /// com assinatura do cliente e QR Code direcionando para o vídeo do teste.
@@ -16,6 +17,7 @@ class AtsPdfService {
   Future<Uint8List> gerarRelatorioAtsPdf({
     required Chamado chamado,
     required LogHorasCustos logHoras,
+    List<DiaTrabalho> diasTrabalho = const [],
     required String servicoExecutado,
     required Uint8List assinaturaBytes,
     required String responsavelNome,
@@ -182,32 +184,91 @@ class AtsPdfService {
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
                   pw.Text(
-                    '3. APONTAMENTO DE HORAS E CUSTOS OPERACIONAIS',
+                    '3. APONTAMENTO DE DIAS E HORAS TRABALHADAS (ATS)',
                     style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: PdfColor.fromInt(0xFF0A369D)),
                   ),
                   pw.SizedBox(height: 6),
+                  if (diasTrabalho.isNotEmpty) ...[
+                    pw.Table(
+                      border: pw.TableBorder.all(color: PdfColor.fromInt(0xFFCBD5E1), width: 0.5),
+                      children: [
+                        pw.TableRow(
+                          decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFF8FAFC)),
+                          children: [
+                            _buildTh('Data'),
+                            _buildTh('Início'),
+                            _buildTh('Fim'),
+                            _buildTh('Almoço'),
+                            _buildTh('Viagem'),
+                            _buildTh('H. Líquidas'),
+                            _buildTh('Nº Técn.'),
+                            _buildTh('Técnicos Alocados'),
+                          ],
+                        ),
+                        ...diasTrabalho.map(
+                          (d) => pw.TableRow(
+                            children: [
+                              _buildTd(d.dataFormatada),
+                              _buildTd(d.horaInicio),
+                              _buildTd(d.horaFim ?? '--'),
+                              _buildTd(d.horaAlmoco),
+                              _buildTd(d.horaViagem),
+                              _buildTd(d.horasLiquidasFormatadas),
+                              _buildTd('${d.numeroTecnicos}'),
+                              _buildTd(d.nomesTecnicos.isNotEmpty ? d.nomesTecnicos : 'Técnico responsável'),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    pw.SizedBox(height: 8),
+                  ] else ...[
+                    pw.Table(
+                      border: pw.TableBorder.all(color: PdfColor.fromInt(0xFFCBD5E1), width: 0.5),
+                      children: [
+                        pw.TableRow(
+                          decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFF8FAFC)),
+                          children: [
+                            _buildTh('Data'),
+                            _buildTh('Hora Início'),
+                            _buildTh('Hora Fim'),
+                          ],
+                        ),
+                        pw.TableRow(
+                          children: [
+                            _buildTd(dateFormat.format(logHoras.data)),
+                            _buildTd(logHoras.horaInicio),
+                            _buildTd(logHoras.horaFim),
+                          ],
+                        ),
+                      ],
+                    ),
+                    pw.SizedBox(height: 8),
+                  ],
+
+                  pw.Text(
+                    'DESPESAS OPERACIONAIS DO ATENDIMENTO',
+                    style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColor.fromInt(0xFF475569)),
+                  ),
+                  pw.SizedBox(height: 4),
                   pw.Table(
                     border: pw.TableBorder.all(color: PdfColor.fromInt(0xFFCBD5E1), width: 0.5),
                     children: [
                       pw.TableRow(
                         decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFF8FAFC)),
                         children: [
-                          _buildTh('Data'),
-                          _buildTh('Hora Início'),
-                          _buildTh('Hora Fim'),
                           _buildTh('Km Rodado'),
                           _buildTh('Pedágio'),
                           _buildTh('Refeição'),
+                          _buildTh('Total Despesas Extras'),
                         ],
                       ),
                       pw.TableRow(
                         children: [
-                          _buildTd(dateFormat.format(logHoras.data)),
-                          _buildTd(logHoras.horaInicio),
-                          _buildTd(logHoras.horaFim),
                           _buildTd('${logHoras.kmRodado.toStringAsFixed(1)} km'),
                           _buildTd(currencyFormat.format(logHoras.pedagio)),
                           _buildTd(currencyFormat.format(logHoras.refeicao)),
+                          _buildTd(currencyFormat.format(logHoras.totalDespesasExtras)),
                         ],
                       ),
                     ],
