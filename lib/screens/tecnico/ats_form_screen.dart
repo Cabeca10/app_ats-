@@ -43,6 +43,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
   late String _chamadoId;
   late String _razaoSocial;
   late String _endereco;
+  late String _emailCliente;
   late String _modeloMaquina;
   late String _fabricante;
   late String _numeroSerie;
@@ -89,6 +90,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       _numeroAts = c.numeroAts;
       _razaoSocial = c.razaoSocial;
       _endereco = c.endereco ?? 'Não informado';
+      _emailCliente = c.emailCliente ?? 'Não informado';
       _tipoAtendimento = c.tipoAtendimento;
       _modeloMaquina = c.modeloMaquina ?? 'Em levantamento';
       _fabricante = c.fabricante ?? 'N/A';
@@ -104,6 +106,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       _numeroAts = (t.numeroAts != null && t.numeroAts!.isNotEmpty) ? t.numeroAts! : t.id.replaceAll('ATS-', '').trim();
       _razaoSocial = t.companyName;
       _endereco = t.address.isNotEmpty ? t.address : 'Conforme cadastro';
+      _emailCliente = 'Não informado';
       _modeloMaquina = t.machineModel.isNotEmpty ? t.machineModel : 'Em levantamento';
       _fabricante = 'N/A';
       _numeroSerie = 'N/A';
@@ -115,6 +118,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       if (cMemoria != null) {
         _chamadoId = cMemoria.id;
         _tipoAtendimento = cMemoria.tipoAtendimento;
+        _emailCliente = cMemoria.emailCliente ?? _emailCliente;
         if (cMemoria.servicoExecutado != null && cMemoria.servicoExecutado!.trim().isNotEmpty) {
           _servicoExecutadoCtrl.text = cMemoria.servicoExecutado!.trim();
         }
@@ -124,6 +128,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       _numeroAts = '014742';
       _razaoSocial = 'Cliente Pmach Industrial';
       _endereco = 'Rua das Indústrias, 100';
+      _emailCliente = 'contato@pmach.com.br';
       _tipoAtendimento = 'MANUTENÇÃO';
       _modeloMaquina = 'Torno CNC Brother TC-R23';
       _fabricante = 'Brother';
@@ -268,19 +273,19 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
     try {
       final client = Supabase.instance.client;
 
-      // 1. Busca dados atualizados do chamado (memorial servico_executado, responsavel, tipo_atendimento)
+      // 1. Busca dados atualizados do chamado (memorial servico_executado, responsavel, tipo_atendimento, email)
       Map<String, dynamic>? chamadoRes;
       if (_chamadoId.isNotEmpty && !_chamadoId.startsWith('c-')) {
         chamadoRes = await client
             .from('chamados')
-            .select('id, servico_executado, responsavel_aceite_nome, tipo_atendimento')
+            .select('id, servico_executado, responsavel_aceite_nome, tipo_atendimento, email_cliente, cliente_email')
             .eq('id', _chamadoId)
             .maybeSingle();
       }
       if (chamadoRes == null && _numeroAts.isNotEmpty) {
         chamadoRes = await client
             .from('chamados')
-            .select('id, servico_executado, responsavel_aceite_nome, tipo_atendimento')
+            .select('id, servico_executado, responsavel_aceite_nome, tipo_atendimento, email_cliente, cliente_email')
             .eq('numero_ats', _numeroAts)
             .maybeSingle();
       }
@@ -292,6 +297,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         final servicoCloud = chamadoRes['servico_executado']?.toString();
         final responsavelCloud = chamadoRes['responsavel_aceite_nome']?.toString();
         final tipoCloud = chamadoRes['tipo_atendimento']?.toString();
+        final emailCloud = (chamadoRes['email_cliente'] ?? chamadoRes['cliente_email'])?.toString();
 
         if (servicoCloud != null && servicoCloud.trim().isNotEmpty) {
           _servicoExecutadoCtrl.text = servicoCloud.trim();
@@ -301,6 +307,9 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         }
         if (tipoCloud != null && tipoCloud.trim().isNotEmpty) {
           _tipoAtendimento = tipoCloud.trim();
+        }
+        if (emailCloud != null && emailCloud.trim().isNotEmpty) {
+          _emailCliente = emailCloud.trim();
         }
       }
 
@@ -1132,6 +1141,8 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
           ),
           const Divider(height: 20, color: Color(0xFFF1F5F9)),
           _buildInfoRow('Cliente / Razão Social:', _razaoSocial, isBold: true),
+          const SizedBox(height: 4),
+          _buildInfoRow('E-mail do Cliente:', _emailCliente),
           const SizedBox(height: 4),
           _buildInfoRow('Local / Endereço:', _endereco),
           const SizedBox(height: 4),

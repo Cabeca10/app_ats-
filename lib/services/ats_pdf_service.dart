@@ -145,6 +145,19 @@ class AtsPdfService {
                       ),
                     ],
                   ),
+                  pw.SizedBox(height: 2),
+                  pw.Row(
+                    children: [
+                      pw.Expanded(
+                        flex: 3,
+                        child: pw.Text('E-mail: ${chamado.emailCliente ?? "Não informado"}', style: const pw.TextStyle(fontSize: 8)),
+                      ),
+                      pw.Expanded(
+                        flex: 2,
+                        child: pw.Text('Contato: ${chamado.contato ?? "Não informado"}', style: const pw.TextStyle(fontSize: 8)),
+                      ),
+                    ],
+                  ),
                   pw.Divider(color: PdfColor.fromInt(0xFFE2E8F0), thickness: 0.5, height: 10),
                   pw.Text(
                     '2. DADOS DO EQUIPAMENTO / MÁQUINA',

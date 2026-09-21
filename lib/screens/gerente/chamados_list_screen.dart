@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../models/chamado.dart';
+import '../../models/dia_trabalho.dart';
+import '../../models/log_horas_custos.dart';
+import '../../services/ats_pdf_service.dart';
 import '../../services/chamados_service.dart';
 import '../../services/orcamento_pdf_service.dart';
 
@@ -16,6 +20,7 @@ class ChamadosListScreen extends StatefulWidget {
 
 class _ChamadosListScreenState extends State<ChamadosListScreen> {
   String _selectedFilter = 'todos'; // 'todos', 'aprovado_pendente', 'orcamento_enviado', 'atribuido'
+  String? _enviandoEmailChamadoId;
   final _dateFormat = DateFormat('dd/MM/yyyy HH:mm');
 
   final List<String> _tecnicosDisponiveis = [
@@ -498,6 +503,30 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
                       textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                     ),
                   ),
+                if (chamado.status == ChamadoStatus.finalizado) ...[
+                  const SizedBox(width: 8),
+                  ElevatedButton.icon(
+                    onPressed: _enviandoEmailChamadoId == chamado.id
+                        ? null
+                        : () => _gerarPdfEEnviarCliente(chamado),
+                    icon: _enviandoEmailChamadoId == chamado.id
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.send_rounded, size: 16),
+                    label: Text(_enviandoEmailChamadoId == chamado.id
+                        ? 'Enviando...'
+                        : 'Gerar PDF e Enviar para o Cliente'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF0A369D),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
               ],
             ),
           ],
@@ -599,6 +628,149 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
       onLayout: (_) => pdfBytes,
       name: 'Orcamento_ATS_${chamado.numeroAts}.pdf',
     );
+  }
+
+  // ============================================================================
+  // GERAÇÃO DE PDF E DISPARO DE E-MAIL VIA SUPABASE EDGE FUNCTIONS
+  // ============================================================================
+  Future<void> _gerarPdfEEnviarCliente(Chamado chamado) async {
+    setState(() => _enviandoEmailChamadoId = chamado.id);
+
+    try {
+      final client = Supabase.instance.client;
+
+      // 1. Busca os dias de trabalho caso não estejam em memória
+      List<DiaTrabalho> dias = chamado.diasTrabalho;
+      if (dias.isEmpty && chamado.id.isNotEmpty && !chamado.id.startsWith('chamado-')) {
+        try {
+          final diasRes = await client
+              .from('ats_dias_trabalho')
+              .select()
+              .eq('chamado_id', chamado.id)
+              .order('data', ascending: true);
+          if (diasRes.isNotEmpty) {
+            dias = (diasRes as List)
+                .map((d) => DiaTrabalho.fromMap(Map<String, dynamic>.from(d as Map)))
+                .toList();
+          }
+        } catch (_) {}
+      }
+
+      // 2. Prepara modelo de horas/custos
+      final logHoras = LogHorasCustos(
+        id: 'log-${DateTime.now().millisecondsSinceEpoch}',
+        idChamado: chamado.id,
+        data: dias.isNotEmpty ? dias.first.data : DateTime.now(),
+        horaInicio: dias.isNotEmpty ? dias.first.horaInicio : '08:00',
+        horaFim: dias.isNotEmpty ? (dias.first.horaFim ?? '17:00') : '17:00',
+        kmRodado: chamado.kmEstimado ?? 0.0,
+      );
+
+      // 3. Obtém assinatura (ou fallback transparente)
+      final assinaturaBytes = await _obterAssinaturaBytes(chamado.assinaturaUrl);
+
+      // 4. Gera o PDF oficial da ATS
+      final pdfBytes = await AtsPdfService.instance.gerarRelatorioAtsPdf(
+        chamado: chamado,
+        logHoras: logHoras,
+        diasTrabalho: dias,
+        servicoExecutado: (chamado.servicoExecutado != null && chamado.servicoExecutado!.trim().isNotEmpty)
+            ? chamado.servicoExecutado!.trim()
+            : 'Atendimento e revisão técnica industrial concluídos.',
+        assinaturaBytes: assinaturaBytes,
+        responsavelNome: (chamado.responsavelAceiteNome != null && chamado.responsavelAceiteNome!.trim().isNotEmpty)
+            ? chamado.responsavelAceiteNome!.trim()
+            : (chamado.contato ?? 'Cliente Responsável'),
+        videoUrl: chamado.videoUrl,
+      );
+
+      // 5. Upload do PDF (v1) para o Supabase Storage
+      final cleanAts = chamado.numeroAts.replaceAll('ATS-', '').trim();
+      final pdfPath = 'relatorios_ats/ats_${cleanAts}_v1.pdf';
+      await client.storage.from('orcamentos').uploadBinary(
+            pdfPath,
+            pdfBytes,
+            fileOptions: const FileOptions(contentType: 'application/pdf', upsert: true),
+          );
+      final pdfUrl = client.storage.from('orcamentos').getPublicUrl(pdfPath);
+
+      // 6. UPDATE na tabela chamados com a nova pdf_url
+      if (chamado.id.isNotEmpty && !chamado.id.startsWith('chamado-')) {
+        await client.from('chamados').update({
+          'orcamento_pdf_url': pdfUrl,
+          'updated_at': DateTime.now().toIso8601String(),
+        }).eq('id', chamado.id);
+      } else {
+        await client.from('chamados').update({
+          'orcamento_pdf_url': pdfUrl,
+          'updated_at': DateTime.now().toIso8601String(),
+        }).eq('numero_ats', cleanAts);
+      }
+
+      // Atualiza o chamado no cache reativo local
+      await ChamadosService.instance.atualizarChamado(
+        chamado.copyWith(orcamentoPdfUrl: pdfUrl),
+      );
+
+      // 7. Invoca a Supabase Edge Function send-ats-pdf
+      final response = await client.functions.invoke(
+        'send-ats-pdf',
+        body: {
+          'chamado_id': chamado.id,
+          'pdf_url': pdfUrl,
+        },
+      );
+
+      if (response.status != 200) {
+        throw Exception('Falha ao disparar Edge Function: status ${response.status}');
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('PDF gerado e enviado para o e-mail do cliente com sucesso!'),
+            backgroundColor: Color(0xFF10B981),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Erro ao gerar e enviar PDF para o cliente: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao enviar PDF: $e'),
+            backgroundColor: const Color(0xFFDC2626),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _enviandoEmailChamadoId = null);
+      }
+    }
+  }
+
+  Future<Uint8List> _obterAssinaturaBytes(String? assinaturaUrl) async {
+    if (assinaturaUrl != null && assinaturaUrl.isNotEmpty) {
+      try {
+        final client = Supabase.instance.client;
+        String path = assinaturaUrl;
+        if (path.contains('/orcamentos/')) {
+          path = path.split('/orcamentos/').last;
+        }
+        final bytes = await client.storage.from('orcamentos').download(path);
+        if (bytes.isNotEmpty) return bytes;
+      } catch (_) {}
+    }
+    // 1x1 Transparent PNG fallback
+    return Uint8List.fromList([
+      137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1,
+      0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 11, 73, 68, 65, 84,
+      120, 1, 99, 96, 0, 0, 0, 2, 0, 1, 244, 113, 100, 166, 0, 0, 0, 0, 73, 69,
+      78, 68, 174, 66, 96, 130
+    ]);
   }
 
   void _mostrarModalAtribuirTecnico(BuildContext context, Chamado chamado) {
@@ -795,6 +967,7 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
   void _mostrarModalNovaProposta(BuildContext context) {
     final formKey = GlobalKey<FormState>();
     final contatoCtrl = TextEditingController();
+    final emailCtrl = TextEditingController();
 
     showDialog(
       context: context,
@@ -856,6 +1029,20 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
                   ),
                   validator: (v) => (v == null || v.trim().isEmpty) ? 'Informe o nome do cliente / solicitante' : null,
                 ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: emailCtrl,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: InputDecoration(
+                    labelText: 'E-mail do Cliente',
+                    hintText: 'cliente@empresa.com.br',
+                    prefixIcon: const Icon(Icons.email_outlined, size: 18),
+                    filled: true,
+                    fillColor: const Color(0xFFF8FAFC),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                  ),
+                ),
               ],
             ),
           ),
@@ -871,6 +1058,7 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
                 Navigator.pop(dialogCtx);
                 final novo = await ChamadosService.instance.criarNovoChamado(
                   contato: contatoCtrl.text.trim(),
+                  emailCliente: emailCtrl.text.trim().isNotEmpty ? emailCtrl.text.trim() : null,
                 );
 
                 if (context.mounted) {

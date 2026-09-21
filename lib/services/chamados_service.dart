@@ -224,10 +224,13 @@ class ChamadosService {
   Future<Chamado> criarNovoChamado({
     required String contato,
     String telefone = '',
+    String? emailCliente,
+    String? clienteEmail,
     String fabricante = '',
     String modeloMaquina = '',
     String defeitoRelatado = '',
     String? razaoSocial,
+    String? endereco,
   }) async {
     final agora = DateTime.now();
     final dataFormatada = '${agora.year}${agora.month.toString().padLeft(2, '0')}${agora.day.toString().padLeft(2, '0')}';
@@ -241,6 +244,8 @@ class ChamadosService {
       razaoSocial: (razaoSocial != null && razaoSocial.trim().isNotEmpty) ? razaoSocial.trim() : contato,
       contato: contato,
       telefone: telefone,
+      emailCliente: emailCliente ?? clienteEmail,
+      endereco: endereco,
       fabricante: fabricante,
       modeloMaquina: modeloMaquina,
       defeitoRelatado: defeitoRelatado,

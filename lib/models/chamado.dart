@@ -40,7 +40,7 @@ class Chamado {
 
   /// Projeção completa para detalhes do chamado
   static const String selectColumnsCompletas = 
-      'id, numero_ats, razao_social, cnpj, inscricao_estadual, telefone, cliente_email, endereco, cidade, contato, tipo_atendimento, fabricante, modelo_maquina, numero_serie, defeito_relatado, servico_executado, token_url, status, taxa_horaria_comercial, taxa_horaria_extra, taxa_horaria_especial, taxa_km, km_estimado, hora_viagem_estimada, valor_estimado_total, termos_aceitos, aceite_data, responsavel_aceite_nome, responsavel_aceite_cargo, assinatura_url, orcamento_pdf_url, tecnico_id, tecnico_nome, created_at, updated_at';
+      'id, numero_ats, razao_social, cnpj, inscricao_estadual, telefone, cliente_email, email_cliente, endereco, cidade, contato, tipo_atendimento, fabricante, modelo_maquina, numero_serie, defeito_relatado, servico_executado, token_url, status, taxa_horaria_comercial, taxa_horaria_extra, taxa_horaria_especial, taxa_km, km_estimado, hora_viagem_estimada, valor_estimado_total, termos_aceitos, aceite_data, responsavel_aceite_nome, responsavel_aceite_cargo, assinatura_url, orcamento_pdf_url, tecnico_id, tecnico_nome, created_at, updated_at';
 
   final String id;
   final String numeroAts;
@@ -48,7 +48,8 @@ class Chamado {
   final String? cnpj;
   final String? inscricaoEstadual;
   final String? telefone;
-  final String? clienteEmail;
+  final String? emailCliente;
+  String? get clienteEmail => emailCliente;
   final String? endereco;
   final String? cidade;
 
@@ -112,7 +113,8 @@ class Chamado {
     this.cnpj,
     this.inscricaoEstadual,
     this.telefone,
-    this.clienteEmail,
+    String? emailCliente,
+    String? clienteEmail,
     this.endereco,
     this.cidade,
     this.tipoAtendimento = 'MANUTENÇÃO',
@@ -143,7 +145,8 @@ class Chamado {
     this.diasTrabalho = const [],
     DateTime? createdAt,
     this.updatedAt,
-  }) : createdAt = createdAt ?? DateTime.now();
+  })  : emailCliente = emailCliente ?? clienteEmail,
+        createdAt = createdAt ?? DateTime.now();
 
   Chamado copyWith({
     String? id,
@@ -155,6 +158,7 @@ class Chamado {
     String? cnpj,
     String? inscricaoEstadual,
     String? telefone,
+    String? emailCliente,
     String? clienteEmail,
     String? endereco,
     String? cidade,
@@ -197,7 +201,7 @@ class Chamado {
       cnpj: cnpj ?? this.cnpj,
       inscricaoEstadual: inscricaoEstadual ?? this.inscricaoEstadual,
       telefone: telefone ?? this.telefone,
-      clienteEmail: clienteEmail ?? this.clienteEmail,
+      emailCliente: emailCliente ?? clienteEmail ?? this.emailCliente,
       endereco: endereco ?? this.endereco,
       cidade: cidade ?? this.cidade,
       tipoAtendimento: tipoAtendimento ?? this.tipoAtendimento,
@@ -242,7 +246,8 @@ class Chamado {
       'cnpj': cnpj,
       'inscricao_estadual': inscricaoEstadual,
       'telefone': telefone,
-      'cliente_email': clienteEmail,
+      'cliente_email': emailCliente,
+      'email_cliente': emailCliente,
       'endereco': endereco,
       'cidade': cidade,
       'tipo_atendimento': tipoAtendimento,
@@ -287,7 +292,7 @@ class Chamado {
       cnpj: map['cnpj'],
       inscricaoEstadual: map['inscricao_estadual'],
       telefone: map['telefone'],
-      clienteEmail: map['cliente_email'],
+      emailCliente: map['email_cliente'] ?? map['cliente_email'],
       endereco: map['endereco'],
       cidade: map['cidade'],
       tipoAtendimento: map['tipo_atendimento']?.toString() ?? 'MANUTENÇÃO',
