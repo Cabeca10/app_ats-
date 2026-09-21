@@ -109,6 +109,28 @@ class ChamadosService {
     }
   }
 
+  /// Recupera chamado por número ATS ou ID a partir da memória
+  Chamado? obterChamadoPorNumeroAts(String numeroAts) {
+    try {
+      return chamadosNotifier.value.firstWhere(
+        (c) => c.numeroAts == numeroAts || c.id == numeroAts,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Recupera chamado por ID a partir da memória
+  Chamado? obterChamadoPorId(String id) {
+    try {
+      return chamadosNotifier.value.firstWhere(
+        (c) => c.id == id,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Atribui o técnico ao chamado, alterando o status para 'atribuido'
   Future<bool> atribuirTecnico({
     required String chamadoId,

@@ -40,7 +40,7 @@ class Chamado {
 
   /// Projeção completa para detalhes do chamado
   static const String selectColumnsCompletas = 
-      'id, numero_ats, razao_social, cnpj, inscricao_estadual, telefone, cliente_email, endereco, cidade, contato, fabricante, modelo_maquina, numero_serie, defeito_relatado, token_url, status, taxa_horaria_comercial, taxa_horaria_extra, taxa_horaria_especial, taxa_km, km_estimado, hora_viagem_estimada, valor_estimado_total, termos_aceitos, aceite_data, responsavel_aceite_nome, responsavel_aceite_cargo, assinatura_url, orcamento_pdf_url, tecnico_id, tecnico_nome, created_at, updated_at';
+      'id, numero_ats, razao_social, cnpj, inscricao_estadual, telefone, cliente_email, endereco, cidade, contato, fabricante, modelo_maquina, numero_serie, defeito_relatado, servico_executado, token_url, status, taxa_horaria_comercial, taxa_horaria_extra, taxa_horaria_especial, taxa_km, km_estimado, hora_viagem_estimada, valor_estimado_total, termos_aceitos, aceite_data, responsavel_aceite_nome, responsavel_aceite_cargo, assinatura_url, orcamento_pdf_url, tecnico_id, tecnico_nome, created_at, updated_at';
 
   final String id;
   final String numeroAts;
@@ -61,6 +61,7 @@ class Chamado {
   final String? modeloMaquina;
   final String? numeroSerie;
   final String? defeitoRelatado;
+  final String? servicoExecutado;
 
   // Segurança e Rota Pública
   final String tokenUrl;
@@ -115,6 +116,7 @@ class Chamado {
     this.modeloMaquina,
     this.numeroSerie,
     this.defeitoRelatado,
+    this.servicoExecutado,
     required this.tokenUrl,
     this.status = ChamadoStatus.novo,
     this.taxaHorariaComercial = 306.00,
@@ -156,6 +158,7 @@ class Chamado {
     String? modeloMaquina,
     String? numeroSerie,
     String? defeitoRelatado,
+    String? servicoExecutado,
     String? tokenUrl,
     String? status,
     double? taxaHorariaComercial,
@@ -196,6 +199,7 @@ class Chamado {
       modeloMaquina: modeloMaquina ?? this.modeloMaquina,
       numeroSerie: numeroSerie ?? this.numeroSerie,
       defeitoRelatado: defeitoRelatado ?? this.defeitoRelatado,
+      servicoExecutado: servicoExecutado ?? this.servicoExecutado,
       tokenUrl: tokenUrl ?? this.tokenUrl,
       status: status ?? this.status,
       taxaHorariaComercial: taxaHorariaComercial ?? this.taxaHorariaComercial,
@@ -239,6 +243,7 @@ class Chamado {
       'modelo_maquina': modeloMaquina,
       'numero_serie': numeroSerie,
       'defeito_relatado': defeitoRelatado,
+      'servico_executado': servicoExecutado,
       'token_url': tokenUrl,
       'status': status,
       'taxa_horaria_comercial': taxaHorariaComercial,
@@ -282,6 +287,7 @@ class Chamado {
       modeloMaquina: map['modelo_maquina'],
       numeroSerie: map['numero_serie'],
       defeitoRelatado: map['defeito_relatado'],
+      servicoExecutado: map['servico_executado'],
       tokenUrl: map['token_url'] ?? '',
       status: map['status'] ?? ChamadoStatus.novo,
       taxaHorariaComercial: (map['taxa_horaria_comercial'] as num?)?.toDouble() ?? 306.00,

@@ -33,6 +33,8 @@ typedef AtsReportScreen = AtsFormScreen;
 class _AtsFormScreenState extends State<AtsFormScreen> {
   final _formKey = GlobalKey<FormState>();
   bool _isSubmitting = false;
+  bool _isSyncing = false;
+  bool _isSavingDraft = false;
 
   // 1. Dados do Cabeçalho (Leitura)
   late String _numeroAts;
@@ -85,6 +87,9 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       _numeroSerie = c.numeroSerie ?? 'N/A';
       _defeitoRelatado = c.defeitoRelatado ?? 'Nenhum defeito cadastrado';
       _responsavelNomeCtrl.text = c.responsavelAceiteNome ?? '';
+      if (c.servicoExecutado != null && c.servicoExecutado!.trim().isNotEmpty) {
+        _servicoExecutadoCtrl.text = c.servicoExecutado!.trim();
+      }
     } else if (widget.ticket != null) {
       final t = widget.ticket!;
       _chamadoId = t.chamadoId ?? t.id;
@@ -95,6 +100,16 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       _fabricante = 'N/A';
       _numeroSerie = 'N/A';
       _defeitoRelatado = t.defeitoRelatado ?? 'Anomalia informada pelo solicitante';
+
+      // Tenta recuperar do ChamadosService em memória se disponível
+      final cMemoria = ChamadosService.instance.obterChamadoPorNumeroAts(_numeroAts) ??
+          ChamadosService.instance.obterChamadoPorId(_chamadoId);
+      if (cMemoria != null) {
+        _chamadoId = cMemoria.id;
+        if (cMemoria.servicoExecutado != null && cMemoria.servicoExecutado!.trim().isNotEmpty) {
+          _servicoExecutadoCtrl.text = cMemoria.servicoExecutado!.trim();
+        }
+      }
     } else {
       _chamadoId = 'c-014742';
       _numeroAts = '014742';
@@ -126,6 +141,11 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
 
     // Tenta restaurar dados locais offline previamente salvos se houver
     _carregarRascunhoLocal();
+
+    // Sincroniza dados com o Supabase automaticamente ao abrir a tela (carrega o que foi salvo no PC)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _sincronizarDadosComSupabase();
+    });
   }
 
   Future<void> _carregarRascunhoLocal() async {
@@ -156,6 +176,274 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
           }
         }
       });
+    }
+  }
+
+  /// Sincroniza dados do chamado e dos dias trabalhados da nuvem (Supabase)
+  /// Permite que o celular carregue instantaneamente o que o técnico digitou no PC
+  Future<void> _sincronizarDadosComSupabase({bool manual = false}) async {
+    final connectivityResult = await Connectivity().checkConnectivity();
+    final isOffline = connectivityResult.contains(ConnectivityResult.none) || connectivityResult.isEmpty;
+
+    if (isOffline) {
+      if (manual && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Dispositivo offline. Exibindo rascunho armazenado localmente.'),
+            backgroundColor: Color(0xFFD97706),
+          ),
+        );
+      }
+      return;
+    }
+
+    if (mounted) setState(() => _isSyncing = true);
+
+    try {
+      final client = Supabase.instance.client;
+
+      // 1. Busca dados atualizados do chamado (memorial servico_executado, responsavel)
+      Map<String, dynamic>? chamadoRes;
+      if (_chamadoId.isNotEmpty && !_chamadoId.startsWith('c-')) {
+        chamadoRes = await client
+            .from('chamados')
+            .select('id, servico_executado, responsavel_aceite_nome')
+            .eq('id', _chamadoId)
+            .maybeSingle();
+      }
+      if (chamadoRes == null && _numeroAts.isNotEmpty) {
+        chamadoRes = await client
+            .from('chamados')
+            .select('id, servico_executado, responsavel_aceite_nome')
+            .eq('numero_ats', _numeroAts)
+            .maybeSingle();
+      }
+
+      if (chamadoRes != null) {
+        if (chamadoRes['id'] != null) {
+          _chamadoId = chamadoRes['id'].toString();
+        }
+        final servicoCloud = chamadoRes['servico_executado']?.toString();
+        final responsavelCloud = chamadoRes['responsavel_aceite_nome']?.toString();
+
+        if (servicoCloud != null && servicoCloud.trim().isNotEmpty) {
+          _servicoExecutadoCtrl.text = servicoCloud.trim();
+        }
+        if (responsavelCloud != null && responsavelCloud.trim().isNotEmpty) {
+          _responsavelNomeCtrl.text = responsavelCloud.trim();
+        }
+      }
+
+      // 2. Busca dias de trabalho na nuvem (ats_dias_trabalho)
+      if (_chamadoId.isNotEmpty && !_chamadoId.startsWith('c-')) {
+        final diasRes = await client
+            .from('ats_dias_trabalho')
+            .select()
+            .eq('chamado_id', _chamadoId)
+            .order('data', ascending: true)
+            .order('hora_inicio', ascending: true);
+
+        if (diasRes.isNotEmpty) {
+          final List<DiaTrabalho> diasNuvem = diasRes
+              .map((d) => DiaTrabalho.fromMap(Map<String, dynamic>.from(d)))
+              .toList();
+          if (diasNuvem.isNotEmpty) {
+            _diasTrabalho = diasNuvem;
+          }
+        }
+
+        // 3. Busca despesas em log_horas_custos
+        final logRes = await client
+            .from('log_horas_custos')
+            .select()
+            .eq('id_chamado', _chamadoId)
+            .maybeSingle();
+
+        if (logRes != null) {
+          if (logRes['km_rodado'] != null && logRes['km_rodado'].toString() != '0.0') {
+            _kmRodadoCtrl.text = logRes['km_rodado'].toString();
+          }
+          if (logRes['pedagio'] != null && logRes['pedagio'].toString() != '0.00') {
+            _pedagioCtrl.text = logRes['pedagio'].toString();
+          }
+          if (logRes['refeicao'] != null && logRes['refeicao'].toString() != '0.00') {
+            _refeicaoCtrl.text = logRes['refeicao'].toString();
+          }
+        }
+      }
+
+      // 4. Salva no Hive localmente para manter o cache atualizado
+      await OfflineStorageService.instance.salvarAtendimentoLocal(
+        id: _chamadoId,
+        dados: {
+          'chamado_id': _chamadoId,
+          'numero_ats': _numeroAts,
+          'razao_social': _razaoSocial,
+          'dias_trabalho': _diasTrabalho.map((d) => d.toMap()).toList(),
+          'km_rodado': double.tryParse(_kmRodadoCtrl.text.replaceAll(',', '.')) ?? 0.0,
+          'pedagio': double.tryParse(_pedagioCtrl.text.replaceAll(',', '.')) ?? 0.0,
+          'refeicao': double.tryParse(_refeicaoCtrl.text.replaceAll(',', '.')) ?? 0.0,
+          'servico_executado': _servicoExecutadoCtrl.text.trim(),
+          'responsavel_nome': _responsavelNomeCtrl.text.trim(),
+          'pending_sync': false,
+        },
+        pendingSync: false,
+      );
+
+      if (mounted) {
+        setState(() {});
+        if (manual) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Dados atualizados com sucesso a partir da nuvem!'),
+              backgroundColor: Color(0xFF10B981),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('[AtsForm] Erro ao sincronizar da nuvem: $e');
+    } finally {
+      if (mounted) setState(() => _isSyncing = false);
+    }
+  }
+
+  /// Salva rascunho das informações (memorial, despesas e dias de trabalho)
+  /// sem exigir assinatura imediata, permitindo alternar entre PC e Celular
+  Future<void> _salvarRascunho({bool silencioso = false}) async {
+    setState(() => _isSavingDraft = true);
+
+    final kmRodado = double.tryParse(_kmRodadoCtrl.text.replaceAll(',', '.')) ?? 0.0;
+    final pedagio = double.tryParse(_pedagioCtrl.text.replaceAll(',', '.')) ?? 0.0;
+    final refeicao = double.tryParse(_refeicaoCtrl.text.replaceAll(',', '.')) ?? 0.0;
+    final primeiroDia = _diasTrabalho.isNotEmpty ? _diasTrabalho.first : null;
+    final dataAtendimento = primeiroDia?.data ?? DateTime.now();
+    final horaInicioStr = primeiroDia?.horaInicio ?? '08:00';
+    final horaFimStr = primeiroDia?.horaFim ?? '17:00';
+
+    // 1. Armazena localmente no Hive (offline-first garantido)
+    final payloadLocal = {
+      'chamado_id': _chamadoId,
+      'numero_ats': _numeroAts,
+      'razao_social': _razaoSocial,
+      'dias_trabalho': _diasTrabalho.map((d) => d.toMap()).toList(),
+      'data_atendimento': dataAtendimento.toIso8601String(),
+      'hora_inicio': horaInicioStr,
+      'hora_fim': horaFimStr,
+      'km_rodado': kmRodado,
+      'pedagio': pedagio,
+      'refeicao': refeicao,
+      'servico_executado': _servicoExecutadoCtrl.text.trim(),
+      'responsavel_nome': _responsavelNomeCtrl.text.trim(),
+      'qtd_fotos': _fotosCapturadas.length,
+      'tem_video': _videoGravado != null,
+      'pending_sync': true,
+    };
+
+    await OfflineStorageService.instance.salvarAtendimentoLocal(
+      id: _chamadoId,
+      dados: payloadLocal,
+      pendingSync: true,
+    );
+
+    // 2. Se online, envia imediatamente ao Supabase (para que o outro dispositivo veja)
+    final connectivityResult = await Connectivity().checkConnectivity();
+    final bool isOffline = connectivityResult.contains(ConnectivityResult.none) ||
+        connectivityResult.isEmpty;
+
+    if (!isOffline) {
+      try {
+        final client = Supabase.instance.client;
+
+        // Atualiza chamado mantendo status em andamento
+        final chamadoUpdate = <String, dynamic>{
+          'servico_executado': _servicoExecutadoCtrl.text.trim(),
+          'status': ChamadoStatus.emAtendimento,
+          'responsavel_aceite_nome': _responsavelNomeCtrl.text.trim(),
+          'updated_at': DateTime.now().toIso8601String(),
+        };
+
+        if (_chamadoId.isNotEmpty && !_chamadoId.startsWith('c-')) {
+          await client.from('chamados').update(chamadoUpdate).eq('id', _chamadoId);
+        } else {
+          final res = await client
+              .from('chamados')
+              .update(chamadoUpdate)
+              .eq('numero_ats', _numeroAts)
+              .select('id')
+              .maybeSingle();
+          if (res != null && res['id'] != null) {
+            _chamadoId = res['id'].toString();
+          }
+        }
+
+        // Grava dias de trabalho em lote em ats_dias_trabalho
+        if (_chamadoId.isNotEmpty && !_chamadoId.startsWith('c-')) {
+          await client.from('ats_dias_trabalho').delete().eq('chamado_id', _chamadoId);
+          if (_diasTrabalho.isNotEmpty) {
+            final diasRows = _diasTrabalho.map((d) => {
+              'chamado_id': _chamadoId,
+              'data': '${d.data.year.toString().padLeft(4, '0')}-${d.data.month.toString().padLeft(2, '0')}-${d.data.day.toString().padLeft(2, '0')}',
+              'hora_inicio': d.horaInicio,
+              'hora_fim': d.horaFim ?? '17:00',
+              'hora_almoco': d.horaAlmoco,
+              'hora_viagem': d.horaViagem,
+              'numero_tecnicos': d.numeroTecnicos,
+              'nomes_tecnicos': d.nomesTecnicos.trim().isNotEmpty ? d.nomesTecnicos.trim() : 'Técnico Responsável',
+            }).toList();
+            await client.from('ats_dias_trabalho').insert(diasRows);
+          }
+
+          // Grava despesas em log_horas_custos
+          await client.from('log_horas_custos').delete().eq('id_chamado', _chamadoId);
+          await client.from('log_horas_custos').insert({
+            'id_chamado': _chamadoId,
+            'data': '${dataAtendimento.year.toString().padLeft(4, '0')}-${dataAtendimento.month.toString().padLeft(2, '0')}-${dataAtendimento.day.toString().padLeft(2, '0')}',
+            'hora_inicio': horaInicioStr,
+            'hora_fim': horaFimStr,
+            'km_rodado': kmRodado,
+            'pedagio': pedagio,
+            'refeicao': refeicao,
+          });
+
+          await OfflineStorageService.instance.marcarSincronizado(_chamadoId);
+        }
+
+        if (!silencioso && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Rascunho salvo na nuvem com sucesso! Disponível no celular/PC.'),
+              backgroundColor: Color(0xFF0A369D),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      } catch (e) {
+        debugPrint('[AtsForm] Erro ao sincronizar rascunho online: $e');
+        if (!silencioso && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Rascunho salvo localmente. Aviso na nuvem: $e'),
+              backgroundColor: const Color(0xFFD97706),
+            ),
+          );
+        }
+      }
+    } else {
+      if (!silencioso && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Rascunho salvo localmente no dispositivo (offline).'),
+            backgroundColor: Color(0xFFD97706),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+
+    if (mounted) {
+      setState(() => _isSavingDraft = false);
     }
   }
 
@@ -459,6 +747,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         'status': ChamadoStatus.finalizado,
         'assinatura_url': assinaturaUrl,
         if (pdfUrl != null) 'orcamento_pdf_url': pdfUrl,
+        'servico_executado': _servicoExecutadoCtrl.text.trim(),
         'termos_aceitos': true,
         'responsavel_aceite_nome': _responsavelNomeCtrl.text.trim(),
         'aceite_data': DateTime.now().toIso8601String(),
@@ -564,6 +853,34 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         backgroundColor: const Color(0xFF0A369D),
         foregroundColor: Colors.white,
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: _isSyncing
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                  )
+                : const Icon(Icons.sync, size: 22),
+            tooltip: 'Sincronizar com Nuvem (Recarregar do PC)',
+            onPressed: _isSyncing ? null : () => _sincronizarDadosComSupabase(manual: true),
+          ),
+          TextButton.icon(
+            onPressed: (_isSubmitting || _isSavingDraft) ? null : () => _salvarRascunho(silencioso: false),
+            icon: _isSavingDraft
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                  )
+                : const Icon(Icons.cloud_upload_outlined, size: 18, color: Colors.white),
+            label: const Text(
+              'Salvar Rascunho',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+            ),
+          ),
+          const SizedBox(width: 4),
+        ],
       ),
       body: SafeArea(
         child: Form(
@@ -629,6 +946,37 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     elevation: 3,
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // BOTÃO SALVAR RASCUNHO (SINCRONIZAÇÃO PC / CELULAR)
+                OutlinedButton.icon(
+                  onPressed: (_isSubmitting || _isSavingDraft) ? null : () => _salvarRascunho(silencioso: false),
+                  icon: _isSavingDraft
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(color: Color(0xFF0A369D), strokeWidth: 2),
+                        )
+                      : const Icon(Icons.cloud_upload_outlined, size: 20),
+                  label: Text(
+                    _isSavingDraft ? 'Salvando Rascunho na Nuvem...' : 'Salvar Rascunho (Sincronizar PC / Celular)',
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF0A369D),
+                    side: const BorderSide(color: Color(0xFF0A369D), width: 1.5),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Center(
+                  child: Text(
+                    'Dica: Salve o rascunho no PC para preencher o memorial e horas. No celular, basta abrir o chamado para colher a assinatura com o cliente.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 11, color: Color(0xFF64748B), fontStyle: FontStyle.italic),
                   ),
                 ),
                 const SizedBox(height: 24),
