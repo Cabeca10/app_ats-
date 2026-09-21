@@ -35,6 +35,8 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
   bool _isSubmitting = false;
   bool _isSyncing = false;
   bool _isSavingDraft = false;
+  late final PageController _diasPageController;
+  int _diaAtualIndex = 0;
 
   // 1. Dados do Cabeçalho (Leitura)
   late String _numeroAts;
@@ -68,12 +70,13 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
   void initState() {
     super.initState();
 
-    // Inicializa SignatureController
+    // Inicializa SignatureController e PageController do carrossel
     _signatureController = SignatureController(
       penStrokeWidth: 3.0,
       penColor: const Color(0xFF0F172A),
       exportBackgroundColor: Colors.white,
     );
+    _diasPageController = PageController(viewportFraction: 0.88);
 
     // Carrega dados a partir do chamado ou ticket recebido
     if (widget.chamado != null) {
@@ -449,6 +452,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
 
   @override
   void dispose() {
+    _diasPageController.dispose();
     _signatureController.dispose();
     _kmRodadoCtrl.dispose();
     _pedagioCtrl.dispose();
@@ -1075,7 +1079,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
   }
 
   // ============================================================================
-  // GESTÃO DINÂMICA DE DIAS DE TRABALHO
+  // GESTÃO DINÂMICA DE DIAS DE TRABALHO (CARROSSEL HORIZONTAL)
   // ============================================================================
 
   void _adicionarDiaTrabalho() {
@@ -1101,6 +1105,17 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
           nomesTecnicos: nomesAnteriores,
         ),
       );
+      _diaAtualIndex = _diasTrabalho.length - 1;
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_diasPageController.hasClients) {
+        _diasPageController.animateToPage(
+          _diasTrabalho.length - 1,
+          duration: const Duration(milliseconds: 320),
+          curve: Curves.easeOutCubic,
+        );
+      }
     });
   }
 
@@ -1116,6 +1131,15 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
     }
     setState(() {
       _diasTrabalho.removeAt(index);
+      if (_diaAtualIndex >= _diasTrabalho.length) {
+        _diaAtualIndex = _diasTrabalho.length - 1;
+      }
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_diasPageController.hasClients && _diaAtualIndex < _diasTrabalho.length) {
+        _diasPageController.jumpToPage(_diaAtualIndex);
+      }
     });
   }
 
@@ -1146,13 +1170,14 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
     }
   }
 
-  /// SEÇÃO 2: Dias de Atendimento e Horas (Grade Dinâmica)
+  /// SEÇÃO 2: Dias de Atendimento e Horas (Carrossel Horizontal Mobile-First)
   Widget _buildSecaoDiasTrabalhados(DateFormat dateFormat) {
     int totalMinutosLiquidos = 0;
     for (var d in _diasTrabalho) {
       totalMinutosLiquidos += d.horasLiquidasMinutos;
     }
     final totalFormatado = DiaTrabalho.formatarMinutos(totalMinutosLiquidos);
+    final displayIndex = _diaAtualIndex >= _diasTrabalho.length ? _diasTrabalho.length : (_diaAtualIndex + 1);
 
     return Container(
       decoration: BoxDecoration(
@@ -1163,304 +1188,418 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
           BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 8, offset: const Offset(0, 2)),
         ],
       ),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Cabeçalho da Seção com Botão de Adicionar
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Row(
-                children: [
-                  Icon(Icons.calendar_month_outlined, color: Color(0xFF0A369D), size: 22),
-                  SizedBox(width: 8),
-                  Text(
-                    'Dias de Atendimento e Horas',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
-                  ),
-                ],
-              ),
-              TextButton.icon(
-                onPressed: _adicionarDiaTrabalho,
-                icon: const Icon(Icons.add_circle, size: 18, color: Color(0xFF0A369D)),
-                label: const Text(
-                  '+ Adicionar Dia',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0A369D)),
-                ),
-                style: TextButton.styleFrom(
-                  backgroundColor: const Color(0xFFEFF6FF),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          // Lista de Cartões de Dias Trabalhados
-          ..._diasTrabalho.asMap().entries.map((entry) {
-            final int idx = entry.key;
-            final DiaTrabalho dia = entry.value;
-
-            return Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Linha de Título do Dia + Chips de Status + Lixeira
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF0A369D),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          'Dia ${idx + 1}',
-                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFECFDF5),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: const Color(0xFFA7F3D0)),
-                        ),
-                        child: Text(
-                          'Líquido: ${dia.horasLiquidasFormatadas}',
-                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF065F46)),
-                        ),
-                      ),
-                      if (dia.horasViagemMinutos > 0) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFEFF6FF),
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: const Color(0xFFBFDBFE)),
-                          ),
-                          child: Text(
-                            'Viagem: ${dia.horasViagemFormatadas}',
-                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF1D4ED8)),
-                          ),
-                        ),
-                      ],
-                      const Spacer(),
-                      if (_diasTrabalho.length > 1)
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline, color: Color(0xFFDC2626), size: 20),
-                          tooltip: 'Remover este dia',
-                          visualDensity: VisualDensity.compact,
-                          padding: EdgeInsets.zero,
-                          onPressed: () => _removerDiaTrabalho(idx),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-
-                  // Seletor de Data Específica do Dia
-                  InkWell(
-                    onTap: () async {
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: dia.data,
-                        firstDate: DateTime(2025),
-                        lastDate: DateTime(2030),
-                      );
-                      if (picked != null) {
-                        setState(() {
-                          _diasTrabalho[idx] = dia.copyWith(data: picked);
-                        });
-                      }
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFFCBD5E1)),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            children: [
-                              const Icon(Icons.calendar_today, size: 15, color: Color(0xFF0A369D)),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Data do Atendimento: ${dia.dataFormatada}',
-                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF1E293B)),
-                              ),
-                            ],
-                          ),
-                          const Text(
-                            'Alterar Data',
-                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF0A369D)),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-
-                  // Grade de 4 Seletores de Horário: Início, Fim, Almoço, Viagem
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildTimePickerTile(
-                          label: 'Início Expediente',
-                          timeText: dia.horaInicio,
-                          icon: Icons.play_arrow_outlined,
-                          onTap: () => _selecionarHorarioParaDia(
-                            index: idx,
-                            label: 'Hora Início',
-                            horarioAtual: dia.horaInicio,
-                            onAtualizado: (val) => _diasTrabalho[idx] = dia.copyWith(horaInicio: val),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _buildTimePickerTile(
-                          label: 'Fim Expediente',
-                          timeText: dia.horaFim ?? '17:00',
-                          icon: Icons.stop_outlined,
-                          onTap: () => _selecionarHorarioParaDia(
-                            index: idx,
-                            label: 'Hora Fim',
-                            horarioAtual: dia.horaFim ?? '17:00',
-                            onAtualizado: (val) => _diasTrabalho[idx] = dia.copyWith(horaFim: val),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildTimePickerTile(
-                          label: 'Tempo Almoço',
-                          timeText: dia.horaAlmoco,
-                          icon: Icons.restaurant_outlined,
-                          onTap: () => _selecionarHorarioParaDia(
-                            index: idx,
-                            label: 'Tempo de Almoço',
-                            horarioAtual: dia.horaAlmoco,
-                            onAtualizado: (val) => _diasTrabalho[idx] = dia.copyWith(horaAlmoco: val),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _buildTimePickerTile(
-                          label: 'Tempo Viagem / Deslocamento',
-                          timeText: dia.horaViagem,
-                          icon: Icons.directions_car_outlined,
-                          onTap: () => _selecionarHorarioParaDia(
-                            index: idx,
-                            label: 'Tempo de Deslocamento',
-                            horarioAtual: dia.horaViagem,
-                            onAtualizado: (val) => _diasTrabalho[idx] = dia.copyWith(horaViagem: val),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-
-                  // Alocação da Equipe Técnica: Nº de Técnicos e Nomes
-                  Row(
-                    children: [
-                      SizedBox(
-                        width: 95,
-                        child: TextFormField(
-                          initialValue: dia.numeroTecnicos.toString(),
-                          keyboardType: TextInputType.number,
-                          decoration: InputDecoration(
-                            labelText: 'Nº Técnicos',
-                            filled: true,
-                            fillColor: Colors.white,
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                          ),
-                          onChanged: (val) {
-                            final parsed = int.tryParse(val) ?? 1;
-                            _diasTrabalho[idx] = dia.copyWith(numeroTecnicos: parsed > 0 ? parsed : 1);
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: TextFormField(
-                          initialValue: dia.nomesTecnicos,
-                          decoration: InputDecoration(
-                            labelText: 'Nomes dos Técnicos Alocados',
-                            hintText: 'Ex: Ricardo / Santin',
-                            filled: true,
-                            fillColor: Colors.white,
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                          ),
-                          onChanged: (val) {
-                            _diasTrabalho[idx] = dia.copyWith(nomesTecnicos: val);
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            );
-          }),
-
-          // Resumo Geral das Horas do Atendimento
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF1F5F9),
-              borderRadius: BorderRadius.circular(8),
-            ),
+          // Cabeçalho da Seção com Título, Indicador de Paginação e Botão de Adicionar
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'Total: ${_diasTrabalho.length} dia(s) registrado(s)',
-                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
+                Row(
+                  children: [
+                    const Icon(Icons.calendar_month_outlined, color: Color(0xFF0A369D), size: 20),
+                    const SizedBox(width: 6),
+                    const Text(
+                      'Dias de Atendimento',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEFF6FF),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFBFDBFE)),
+                      ),
+                      child: Text(
+                        _diaAtualIndex >= _diasTrabalho.length
+                            ? '+ Novo Dia'
+                            : 'Dia $displayIndex de ${_diasTrabalho.length}',
+                        style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF1D4ED8)),
+                      ),
+                    ),
+                  ],
                 ),
-                Text(
-                  'Total Líquido: $totalFormatado',
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0A369D)),
+                TextButton.icon(
+                  onPressed: _adicionarDiaTrabalho,
+                  icon: const Icon(Icons.add_circle, size: 16, color: Color(0xFF0A369D)),
+                  label: const Text(
+                    '+ Adicionar',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0A369D)),
+                  ),
+                  style: TextButton.styleFrom(
+                    backgroundColor: const Color(0xFFEFF6FF),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                  ),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 10),
 
-          // Botão Secundário de Inclusão de Novo Dia
-          OutlinedButton.icon(
-            onPressed: _adicionarDiaTrabalho,
-            icon: const Icon(Icons.add, size: 18),
-            label: const Text('+ Adicionar Outro Dia de Atendimento'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: const Color(0xFF0A369D),
-              side: const BorderSide(color: Color(0xFF0A369D)),
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          // Carrossel Horizontal com rolagem lateral dos dias
+          SizedBox(
+            height: 310,
+            child: PageView.builder(
+              controller: _diasPageController,
+              physics: const BouncingScrollPhysics(),
+              itemCount: _diasTrabalho.length + 1,
+              onPageChanged: (idx) {
+                setState(() {
+                  _diaAtualIndex = idx;
+                });
+              },
+              itemBuilder: (context, idx) {
+                if (idx == _diasTrabalho.length) {
+                  return _buildCardAdicionarOutroDia();
+                }
+                final DiaTrabalho dia = _diasTrabalho[idx];
+                return _buildCardDiaCarrossel(dia, idx);
+              },
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // Indicador de Paginação (Bolinhas / Dots)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(_diasTrabalho.length + 1, (dotIdx) {
+              final isSelected = dotIdx == _diaAtualIndex;
+              final isAddCard = dotIdx == _diasTrabalho.length;
+              return AnimatedContainer(
+                duration: const Duration(milliseconds: 250),
+                margin: const EdgeInsets.symmetric(horizontal: 2.5),
+                height: 5,
+                width: isSelected ? 18 : 5,
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? (isAddCard ? const Color(0xFF10B981) : const Color(0xFF0A369D))
+                      : const Color(0xFFCBD5E1),
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              );
+            }),
+          ),
+          const SizedBox(height: 10),
+
+          // Barra de Resumo das Horas Totais
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.swipe_outlined, size: 15, color: Color(0xFF64748B)),
+                      const SizedBox(width: 5),
+                      Text(
+                        'Deslize para navegar (${_diasTrabalho.length} dia${_diasTrabalho.length > 1 ? "s" : ""})',
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
+                      ),
+                    ],
+                  ),
+                  Text(
+                    'Total Líquido: $totalFormatado',
+                    style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF0A369D)),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Card individual compacto para o dia trabalhado no carrossel
+  Widget _buildCardDiaCarrossel(DiaTrabalho dia, int idx) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.02),
+            blurRadius: 4,
+            offset: const Offset(0, 1),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Linha de Cabeçalho do Card (Dia, Horas Líquidas, Lixeira)
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0A369D),
+                  borderRadius: BorderRadius.circular(5),
+                ),
+                child: Text(
+                  'Dia ${idx + 1}',
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFECFDF5),
+                  borderRadius: BorderRadius.circular(5),
+                  border: Border.all(color: const Color(0xFFA7F3D0)),
+                ),
+                child: Text(
+                  'Líquido: ${dia.horasLiquidasFormatadas}',
+                  style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFF065F46)),
+                ),
+              ),
+              if (dia.horasViagemMinutos > 0) ...[
+                const SizedBox(width: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEFF6FF),
+                    borderRadius: BorderRadius.circular(5),
+                    border: Border.all(color: const Color(0xFFBFDBFE)),
+                  ),
+                  child: Text(
+                    'Viagem: ${dia.horasViagemFormatadas}',
+                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFF1D4ED8)),
+                  ),
+                ),
+              ],
+              const Spacer(),
+              if (_diasTrabalho.length > 1)
+                IconButton(
+                  icon: const Icon(Icons.delete_outline, color: Color(0xFFDC2626), size: 19),
+                  tooltip: 'Remover este dia',
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () => _removerDiaTrabalho(idx),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+
+          // Seletor de Data
+          InkWell(
+            onTap: () async {
+              final picked = await showDatePicker(
+                context: context,
+                initialDate: dia.data,
+                firstDate: DateTime(2025),
+                lastDate: DateTime(2030),
+              );
+              if (picked != null) {
+                setState(() {
+                  _diasTrabalho[idx] = dia.copyWith(data: picked);
+                });
+              }
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: const Color(0xFFCBD5E1)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.calendar_today, size: 14, color: Color(0xFF0A369D)),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Data: ${dia.dataFormatada}',
+                        style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: Color(0xFF1E293B)),
+                      ),
+                    ],
+                  ),
+                  const Text(
+                    'Alterar',
+                    style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: Color(0xFF0A369D)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+
+          // Grade 2x2 com Seletores de Horário
+          Row(
+            children: [
+              Expanded(
+                child: _buildTimePickerTile(
+                  label: 'Início Expediente',
+                  timeText: dia.horaInicio,
+                  icon: Icons.play_arrow_outlined,
+                  onTap: () => _selecionarHorarioParaDia(
+                    index: idx,
+                    label: 'Hora Início',
+                    horarioAtual: dia.horaInicio,
+                    onAtualizado: (val) => _diasTrabalho[idx] = dia.copyWith(horaInicio: val),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: _buildTimePickerTile(
+                  label: 'Fim Expediente',
+                  timeText: dia.horaFim ?? '17:00',
+                  icon: Icons.stop_outlined,
+                  onTap: () => _selecionarHorarioParaDia(
+                    index: idx,
+                    label: 'Hora Fim',
+                    horarioAtual: dia.horaFim ?? '17:00',
+                    onAtualizado: (val) => _diasTrabalho[idx] = dia.copyWith(horaFim: val),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: _buildTimePickerTile(
+                  label: 'Tempo Almoço',
+                  timeText: dia.horaAlmoco,
+                  icon: Icons.restaurant_outlined,
+                  onTap: () => _selecionarHorarioParaDia(
+                    index: idx,
+                    label: 'Tempo de Almoço',
+                    horarioAtual: dia.horaAlmoco,
+                    onAtualizado: (val) => _diasTrabalho[idx] = dia.copyWith(horaAlmoco: val),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: _buildTimePickerTile(
+                  label: 'Tempo Deslocamento',
+                  timeText: dia.horaViagem,
+                  icon: Icons.directions_car_outlined,
+                  onTap: () => _selecionarHorarioParaDia(
+                    index: idx,
+                    label: 'Tempo de Deslocamento',
+                    horarioAtual: dia.horaViagem,
+                    onAtualizado: (val) => _diasTrabalho[idx] = dia.copyWith(horaViagem: val),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+
+          // Equipe Técnica Alocada
+          Row(
+            children: [
+              SizedBox(
+                width: 85,
+                child: TextFormField(
+                  initialValue: dia.numeroTecnicos.toString(),
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: 'Nº Técnicos',
+                    labelStyle: const TextStyle(fontSize: 10),
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                    isDense: true,
+                  ),
+                  style: const TextStyle(fontSize: 12),
+                  onChanged: (val) {
+                    final parsed = int.tryParse(val) ?? 1;
+                    _diasTrabalho[idx] = dia.copyWith(numeroTecnicos: parsed > 0 ? parsed : 1);
+                  },
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: TextFormField(
+                  initialValue: dia.nomesTecnicos,
+                  decoration: InputDecoration(
+                    labelText: 'Técnicos Alocados',
+                    labelStyle: const TextStyle(fontSize: 10),
+                    hintText: 'Ex: Ricardo / Santin',
+                    hintStyle: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8)),
+                    filled: true,
+                    fillColor: Colors.white,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                    isDense: true,
+                  ),
+                  style: const TextStyle(fontSize: 11),
+                  onChanged: (val) {
+                    _diasTrabalho[idx] = dia.copyWith(nomesTecnicos: val);
+                  },
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Card no final do carrossel para inclusão rápida de mais um dia
+  Widget _buildCardAdicionarOutroDia() {
+    return InkWell(
+      onTap: _adicionarDiaTrabalho,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF0FDF4),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: const Color(0xFF86EFAC), width: 1.5),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: const BoxDecoration(
+                color: Color(0xFFDCFCE7),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.add, size: 30, color: Color(0xFF15803D)),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              '+ Adicionar Dia ${_diasTrabalho.length + 1}',
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF15803D)),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Toque aqui para registrar mais um dia de atendimento',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 11, color: Color(0xFF475569)),
+            ),
+          ],
+        ),
       ),
     );
   }
