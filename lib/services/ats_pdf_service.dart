@@ -168,6 +168,27 @@ class AtsPdfService {
                     pw.SizedBox(height: 3),
                     pw.Text('Defeito Informado: ${chamado.defeitoRelatado}', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey800)),
                   ],
+                  pw.Divider(color: PdfColor.fromInt(0xFFE2E8F0), thickness: 0.5, height: 8),
+                  pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      pw.Text(
+                        'TIPO DE ATENDIMENTO:',
+                        style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, color: PdfColor.fromInt(0xFF0A369D)),
+                      ),
+                      pw.Row(
+                        children: [
+                          _buildTipoCheckbox('SERV. ENG.', chamado.tipoAtendimento == 'SERV. ENG.'),
+                          pw.SizedBox(width: 10),
+                          _buildTipoCheckbox('MANUTENÇÃO', chamado.tipoAtendimento == 'MANUTENÇÃO'),
+                          pw.SizedBox(width: 10),
+                          _buildTipoCheckbox('INSTALAÇÃO', chamado.tipoAtendimento == 'INSTALAÇÃO'),
+                          pw.SizedBox(width: 10),
+                          _buildTipoCheckbox('GARANTIA', chamado.tipoAtendimento == 'GARANTIA'),
+                        ],
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -404,6 +425,48 @@ class AtsPdfService {
         textAlign: pw.TextAlign.center,
         style: const pw.TextStyle(fontSize: 7.5),
       ),
+    );
+  }
+
+  pw.Widget _buildTipoCheckbox(String label, bool isSelected) {
+    return pw.Row(
+      mainAxisSize: pw.MainAxisSize.min,
+      crossAxisAlignment: pw.CrossAxisAlignment.center,
+      children: [
+        pw.Container(
+          width: 9,
+          height: 9,
+          decoration: pw.BoxDecoration(
+            border: pw.Border.all(
+              color: isSelected ? PdfColor.fromInt(0xFF0A369D) : PdfColors.grey600,
+              width: 1,
+            ),
+            color: isSelected ? PdfColor.fromInt(0xFF0A369D) : PdfColors.white,
+            borderRadius: pw.BorderRadius.circular(1.5),
+          ),
+          child: isSelected
+              ? pw.Center(
+                  child: pw.Text(
+                    'X',
+                    style: pw.TextStyle(
+                      color: PdfColors.white,
+                      fontSize: 6.5,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                )
+              : null,
+        ),
+        pw.SizedBox(width: 4),
+        pw.Text(
+          label,
+          style: pw.TextStyle(
+            fontSize: 7.5,
+            fontWeight: isSelected ? pw.FontWeight.bold : pw.FontWeight.normal,
+            color: isSelected ? PdfColor.fromInt(0xFF0A369D) : PdfColors.grey800,
+          ),
+        ),
+      ],
     );
   }
 }

@@ -48,6 +48,10 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
   late String _numeroSerie;
   late String _defeitoRelatado;
 
+  // 1.1 Classificação do Atendimento e Equipe Técnica
+  String _tipoAtendimento = 'MANUTENÇÃO';
+  List<Map<String, dynamic>> _listaTecnicosDisponiveis = [];
+
   // 2. Dias Trabalhados e Despesas
   List<DiaTrabalho> _diasTrabalho = [];
   final _kmRodadoCtrl = TextEditingController(text: '0.0');
@@ -85,6 +89,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       _numeroAts = c.numeroAts;
       _razaoSocial = c.razaoSocial;
       _endereco = c.endereco ?? 'Não informado';
+      _tipoAtendimento = c.tipoAtendimento;
       _modeloMaquina = c.modeloMaquina ?? 'Em levantamento';
       _fabricante = c.fabricante ?? 'N/A';
       _numeroSerie = c.numeroSerie ?? 'N/A';
@@ -109,6 +114,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
           ChamadosService.instance.obterChamadoPorId(_chamadoId);
       if (cMemoria != null) {
         _chamadoId = cMemoria.id;
+        _tipoAtendimento = cMemoria.tipoAtendimento;
         if (cMemoria.servicoExecutado != null && cMemoria.servicoExecutado!.trim().isNotEmpty) {
           _servicoExecutadoCtrl.text = cMemoria.servicoExecutado!.trim();
         }
@@ -118,6 +124,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       _numeroAts = '014742';
       _razaoSocial = 'Cliente Pmach Industrial';
       _endereco = 'Rua das Indústrias, 100';
+      _tipoAtendimento = 'MANUTENÇÃO';
       _modeloMaquina = 'Torno CNC Brother TC-R23';
       _fabricante = 'Brother';
       _numeroSerie = 'BR-2026-99';
@@ -145,6 +152,9 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
     // Tenta restaurar dados locais offline previamente salvos se houver
     _carregarRascunhoLocal();
 
+    // Carrega a equipe de técnicos cadastrados no sistema
+    _carregarTecnicosDisponiveis();
+
     // Sincroniza dados com o Supabase automaticamente ao abrir a tela (carrega o que foi salvo no PC)
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _sincronizarDadosComSupabase();
@@ -155,6 +165,9 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
     final offlineData = OfflineStorageService.instance.obterAtendimento(_chamadoId);
     if (offlineData != null && mounted) {
       setState(() {
+        if (offlineData['tipo_atendimento'] != null) {
+          _tipoAtendimento = offlineData['tipo_atendimento'].toString();
+        }
         if (offlineData['servico_executado'] != null) {
           _servicoExecutadoCtrl.text = offlineData['servico_executado'].toString();
         }
@@ -182,6 +195,56 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
     }
   }
 
+  /// Carrega lista de técnicos cadastrados na tabela usuarios para alocação nos dias
+  Future<void> _carregarTecnicosDisponiveis() async {
+    try {
+      final client = Supabase.instance.client;
+      final res = await client
+          .from('usuarios')
+          .select('id, nome, email, perfil')
+          .order('nome', ascending: true);
+
+      if (res.isNotEmpty && mounted) {
+        setState(() {
+          _listaTecnicosDisponiveis = List<Map<String, dynamic>>.from(res);
+        });
+        return;
+      }
+    } catch (e) {
+      debugPrint('[AtsForm] Erro ao carregar usuarios/tecnicos: $e');
+    }
+
+    // Fallback caso offline ou usuarios vazio: inclui tecnico atribuido e defaults
+    if (_listaTecnicosDisponiveis.isEmpty && mounted) {
+      final List<Map<String, dynamic>> defaults = [];
+      if (widget.chamado?.tecnicoId != null) {
+        defaults.add({
+          'id': widget.chamado!.tecnicoId!,
+          'nome': widget.chamado!.tecnicoNome ?? 'Técnico Responsável',
+          'email': 'responsavel@pmach.com.br',
+          'perfil': 'Técnico',
+        });
+      }
+      defaults.addAll([
+        {
+          'id': '00000000-0000-0000-0000-000000000001',
+          'nome': 'Ricardo Santin',
+          'email': 'ricardo@pmach.com.br',
+          'perfil': 'Técnico',
+        },
+        {
+          'id': '00000000-0000-0000-0000-000000000002',
+          'nome': 'Técnico Campo 02',
+          'email': 'tecnico2@pmach.com.br',
+          'perfil': 'Técnico',
+        },
+      ]);
+      setState(() {
+        _listaTecnicosDisponiveis = defaults;
+      });
+    }
+  }
+
   /// Sincroniza dados do chamado e dos dias trabalhados da nuvem (Supabase)
   /// Permite que o celular carregue instantaneamente o que o técnico digitou no PC
   Future<void> _sincronizarDadosComSupabase({bool manual = false}) async {
@@ -205,19 +268,19 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
     try {
       final client = Supabase.instance.client;
 
-      // 1. Busca dados atualizados do chamado (memorial servico_executado, responsavel)
+      // 1. Busca dados atualizados do chamado (memorial servico_executado, responsavel, tipo_atendimento)
       Map<String, dynamic>? chamadoRes;
       if (_chamadoId.isNotEmpty && !_chamadoId.startsWith('c-')) {
         chamadoRes = await client
             .from('chamados')
-            .select('id, servico_executado, responsavel_aceite_nome')
+            .select('id, servico_executado, responsavel_aceite_nome, tipo_atendimento')
             .eq('id', _chamadoId)
             .maybeSingle();
       }
       if (chamadoRes == null && _numeroAts.isNotEmpty) {
         chamadoRes = await client
             .from('chamados')
-            .select('id, servico_executado, responsavel_aceite_nome')
+            .select('id, servico_executado, responsavel_aceite_nome, tipo_atendimento')
             .eq('numero_ats', _numeroAts)
             .maybeSingle();
       }
@@ -228,6 +291,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         }
         final servicoCloud = chamadoRes['servico_executado']?.toString();
         final responsavelCloud = chamadoRes['responsavel_aceite_nome']?.toString();
+        final tipoCloud = chamadoRes['tipo_atendimento']?.toString();
 
         if (servicoCloud != null && servicoCloud.trim().isNotEmpty) {
           _servicoExecutadoCtrl.text = servicoCloud.trim();
@@ -235,7 +299,13 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         if (responsavelCloud != null && responsavelCloud.trim().isNotEmpty) {
           _responsavelNomeCtrl.text = responsavelCloud.trim();
         }
+        if (tipoCloud != null && tipoCloud.trim().isNotEmpty) {
+          _tipoAtendimento = tipoCloud.trim();
+        }
       }
+
+      // 1.1 Atualiza lista de técnicos da base
+      await _carregarTecnicosDisponiveis();
 
       // 2. Busca dias de trabalho na nuvem (ats_dias_trabalho)
       if (_chamadoId.isNotEmpty && !_chamadoId.startsWith('c-')) {
@@ -282,6 +352,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
           'chamado_id': _chamadoId,
           'numero_ats': _numeroAts,
           'razao_social': _razaoSocial,
+          'tipo_atendimento': _tipoAtendimento,
           'dias_trabalho': _diasTrabalho.map((d) => d.toMap()).toList(),
           'km_rodado': double.tryParse(_kmRodadoCtrl.text.replaceAll(',', '.')) ?? 0.0,
           'pedagio': double.tryParse(_pedagioCtrl.text.replaceAll(',', '.')) ?? 0.0,
@@ -330,6 +401,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       'chamado_id': _chamadoId,
       'numero_ats': _numeroAts,
       'razao_social': _razaoSocial,
+      'tipo_atendimento': _tipoAtendimento,
       'dias_trabalho': _diasTrabalho.map((d) => d.toMap()).toList(),
       'data_atendimento': dataAtendimento.toIso8601String(),
       'hora_inicio': horaInicioStr,
@@ -363,6 +435,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         final chamadoUpdate = <String, dynamic>{
           'servico_executado': _servicoExecutadoCtrl.text.trim(),
           'status': ChamadoStatus.emAtendimento,
+          'tipo_atendimento': _tipoAtendimento,
           'responsavel_aceite_nome': _responsavelNomeCtrl.text.trim(),
           'updated_at': DateTime.now().toIso8601String(),
         };
@@ -394,6 +467,8 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
               'hora_viagem': d.horaViagem,
               'numero_tecnicos': d.numeroTecnicos,
               'nomes_tecnicos': d.nomesTecnicos.trim().isNotEmpty ? d.nomesTecnicos.trim() : 'Técnico Responsável',
+              'tecnicos_ids': d.tecnicosIds,
+              'horas_liquidas_minutos': d.horasLiquidasMinutos,
             }).toList();
             await client.from('ats_dias_trabalho').insert(diasRows);
           }
@@ -582,6 +657,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       'chamado_id': _chamadoId,
       'numero_ats': _numeroAts,
       'razao_social': _razaoSocial,
+      'tipo_atendimento': _tipoAtendimento,
       'dias_trabalho': _diasTrabalho.map((d) => d.toMap()).toList(),
       'data_atendimento': dataAtendimento.toIso8601String(),
       'hora_inicio': horaInicioStr,
@@ -708,19 +784,26 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       videoUrl ??= 'https://pmach.com.br/ats/video/$_numeroAts';
 
       // C. Gerar layout do relatório em PDF (com assinatura e QR Code do vídeo)
-      final chamadoAtual = widget.chamado ??
-          Chamado(
-            id: _chamadoId,
-            numeroAts: _numeroAts,
-            razaoSocial: _razaoSocial,
-            endereco: _endereco,
-            modeloMaquina: _modeloMaquina,
-            fabricante: _fabricante,
-            numeroSerie: _numeroSerie,
-            defeitoRelatado: _defeitoRelatado,
-            tokenUrl: _chamadoId,
-            status: ChamadoStatus.finalizado,
-          );
+      final chamadoAtual = (widget.chamado != null)
+          ? widget.chamado!.copyWith(
+              tipoAtendimento: _tipoAtendimento,
+              servicoExecutado: _servicoExecutadoCtrl.text.trim(),
+              responsavelAceiteNome: _responsavelNomeCtrl.text.trim(),
+              status: ChamadoStatus.finalizado,
+            )
+          : Chamado(
+              id: _chamadoId,
+              numeroAts: _numeroAts,
+              razaoSocial: _razaoSocial,
+              endereco: _endereco,
+              tipoAtendimento: _tipoAtendimento,
+              modeloMaquina: _modeloMaquina,
+              fabricante: _fabricante,
+              numeroSerie: _numeroSerie,
+              defeitoRelatado: _defeitoRelatado,
+              tokenUrl: _chamadoId,
+              status: ChamadoStatus.finalizado,
+            );
 
       final pdfBytes = await AtsPdfService.instance.gerarRelatorioAtsPdf(
         chamado: chamadoAtual,
@@ -749,6 +832,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       // E. UPDATE na tabela chamados alterando status para 'finalizado'
       final updateData = <String, dynamic>{
         'status': ChamadoStatus.finalizado,
+        'tipo_atendimento': _tipoAtendimento,
         'assinatura_url': assinaturaUrl,
         if (pdfUrl != null) 'orcamento_pdf_url': pdfUrl,
         'servico_executado': _servicoExecutadoCtrl.text.trim(),
@@ -789,6 +873,8 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
               'hora_viagem': d.horaViagem,
               'numero_tecnicos': d.numeroTecnicos,
               'nomes_tecnicos': d.nomesTecnicos.trim().isNotEmpty ? d.nomesTecnicos.trim() : 'Técnico Responsável',
+              'tecnicos_ids': d.tecnicosIds,
+              'horas_liquidas_minutos': d.horasLiquidasMinutos,
             }).toList();
             await client.from('ats_dias_trabalho').insert(diasRows);
           }
@@ -898,6 +984,12 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
                 // SEÇÃO 1: HEADER (DADOS DE LEITURA DO CLIENTE / ATS)
                 // -------------------------------------------------------------
                 _buildCardHeader(),
+                const SizedBox(height: 12),
+
+                // -------------------------------------------------------------
+                // SEÇÃO 1.1: TIPO DE ATENDIMENTO
+                // -------------------------------------------------------------
+                _buildCardTipoAtendimento(),
                 const SizedBox(height: 16),
 
                 // -------------------------------------------------------------
@@ -1075,6 +1167,104 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  /// SEÇÃO 1.1: Seletor Visual de Tipo de Atendimento (Garantia vs Manutenção)
+  Widget _buildCardTipoAtendimento() {
+    const tipos = ['SERV. ENG.', 'MANUTENÇÃO', 'INSTALAÇÃO', 'GARANTIA'];
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 8, offset: const Offset(0, 2)),
+        ],
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.verified_outlined, color: Color(0xFF0A369D), size: 18),
+              const SizedBox(width: 8),
+              const Text(
+                'TIPO DE ATENDIMENTO',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF0A369D)),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: _tipoAtendimento == 'GARANTIA' ? const Color(0xFFFEF2F2) : const Color(0xFFEFF6FF),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: _tipoAtendimento == 'GARANTIA' ? const Color(0xFFFECACA) : const Color(0xFFBFDBFE),
+                  ),
+                ),
+                child: Text(
+                  _tipoAtendimento,
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.bold,
+                    color: _tipoAtendimento == 'GARANTIA' ? const Color(0xFFDC2626) : const Color(0xFF1D4ED8),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: tipos.map((tipo) {
+              final isSelected = _tipoAtendimento == tipo;
+              return InkWell(
+                onTap: () {
+                  setState(() {
+                    _tipoAtendimento = tipo;
+                  });
+                },
+                borderRadius: BorderRadius.circular(8),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: isSelected ? const Color(0xFF0A369D) : const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: isSelected ? const Color(0xFF0A369D) : const Color(0xFFCBD5E1),
+                      width: isSelected ? 1.5 : 1,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
+                        size: 16,
+                        color: isSelected ? Colors.white : const Color(0xFF64748B),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        tipo,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                          color: isSelected ? Colors.white : const Color(0xFF334155),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1515,17 +1705,18 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
           Row(
             children: [
               SizedBox(
-                width: 85,
+                width: 78,
                 child: TextFormField(
+                  key: ValueKey('num_tec_${idx}_${dia.numeroTecnicos}'),
                   initialValue: dia.numeroTecnicos.toString(),
                   keyboardType: TextInputType.number,
                   decoration: InputDecoration(
-                    labelText: 'Nº Técnicos',
+                    labelText: 'Nº Técn.',
                     labelStyle: const TextStyle(fontSize: 10),
                     filled: true,
                     fillColor: Colors.white,
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(6)),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
                     isDense: true,
                   ),
                   style: const TextStyle(fontSize: 12),
@@ -1535,9 +1726,10 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
                   },
                 ),
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 5),
               Expanded(
                 child: TextFormField(
+                  key: ValueKey('nomes_tec_${idx}_${dia.nomesTecnicos}'),
                   initialValue: dia.nomesTecnicos,
                   decoration: InputDecoration(
                     labelText: 'Técnicos Alocados',
@@ -1554,6 +1746,20 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
                   onChanged: (val) {
                     _diasTrabalho[idx] = dia.copyWith(nomesTecnicos: val);
                   },
+                ),
+              ),
+              const SizedBox(width: 4),
+              InkWell(
+                onTap: () => _abrirSeletorEquipeParaDia(idx, dia),
+                borderRadius: BorderRadius.circular(6),
+                child: Container(
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEFF6FF),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: const Color(0xFFBFDBFE)),
+                  ),
+                  child: const Icon(Icons.group_add_outlined, size: 18, color: Color(0xFF0A369D)),
                 ),
               ),
             ],
@@ -1601,6 +1807,181 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  /// Modal interativo para seleção de técnicos cadastrados para o dia específico
+  Future<void> _abrirSeletorEquipeParaDia(int idx, DiaTrabalho dia) async {
+    if (_listaTecnicosDisponiveis.isEmpty) {
+      await _carregarTecnicosDisponiveis();
+    }
+
+    final List<String> selecionadosIds = List.from(dia.tecnicosIds);
+    final List<String> nomesAtuais = dia.nomesTecnicos
+        .split(RegExp(r'[/,;+]'))
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+
+    // Se não tinha IDs mas tinha nomes, tenta correlacionar com a base
+    if (selecionadosIds.isEmpty && nomesAtuais.isNotEmpty) {
+      for (final tec in _listaTecnicosDisponiveis) {
+        final nomeTec = tec['nome']?.toString().toLowerCase() ?? '';
+        final idTec = tec['id']?.toString() ?? '';
+        if (nomesAtuais.any((n) => nomeTec.contains(n.toLowerCase()) || n.toLowerCase().contains(nomeTec))) {
+          if (!selecionadosIds.contains(idTec) && idTec.isNotEmpty) {
+            selecionadosIds.add(idTec);
+          }
+        }
+      }
+    }
+
+    if (!mounted) return;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (bottomContext, setModalState) {
+            return SafeArea(
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.75,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.group, color: Color(0xFF0A369D), size: 22),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Equipe do Dia ${idx + 1}',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF0A369D),
+                              ),
+                            ),
+                          ],
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, size: 20),
+                          onPressed: () => Navigator.pop(ctx),
+                        ),
+                      ],
+                    ),
+                    const Text(
+                      'Marque os técnicos que prestaram atendimento neste dia específico para o fechamento individual de horas.',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                    ),
+                    const Divider(height: 20),
+                    if (_listaTecnicosDisponiveis.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 24),
+                        child: Center(
+                          child: Text(
+                            'Nenhum técnico cadastrado na base ou dispositivo offline.',
+                            style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                          ),
+                        ),
+                      )
+                    else
+                      Expanded(
+                        child: ListView.separated(
+                          itemCount: _listaTecnicosDisponiveis.length,
+                          separatorBuilder: (_, __) => const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                          itemBuilder: (context, tecIdx) {
+                            final tec = _listaTecnicosDisponiveis[tecIdx];
+                            final id = tec['id']?.toString() ?? '';
+                            final nome = tec['nome']?.toString() ?? 'Sem Nome';
+                            final email = tec['email']?.toString() ?? '';
+                            final perfil = tec['perfil']?.toString() ?? 'Técnico';
+                            final isChecked = selecionadosIds.contains(id);
+
+                            return CheckboxListTile(
+                              value: isChecked,
+                              activeColor: const Color(0xFF0A369D),
+                              dense: true,
+                              title: Text(
+                                nome,
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
+                              ),
+                              subtitle: Text(
+                                '$perfil • $email',
+                                style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                              ),
+                              onChanged: (val) {
+                                setModalState(() {
+                                  if (val == true) {
+                                    if (!selecionadosIds.contains(id)) selecionadosIds.add(id);
+                                  } else {
+                                    selecionadosIds.remove(id);
+                                  }
+                                });
+                              },
+                            );
+                          },
+                        ),
+                      ),
+                    const SizedBox(height: 12),
+                    ElevatedButton(
+                      onPressed: () {
+                        final nomesSelecionados = <String>[];
+                        for (final id in selecionadosIds) {
+                          final match = _listaTecnicosDisponiveis.firstWhere(
+                            (t) => t['id']?.toString() == id,
+                            orElse: () => {'nome': ''},
+                          );
+                          final n = match['nome']?.toString() ?? '';
+                          if (n.isNotEmpty) nomesSelecionados.add(n);
+                        }
+
+                        final strNomes = nomesSelecionados.isNotEmpty
+                            ? nomesSelecionados.join(' / ')
+                            : dia.nomesTecnicos;
+                        final qtdTec = selecionadosIds.isNotEmpty
+                            ? selecionadosIds.length
+                            : (dia.numeroTecnicos > 0 ? dia.numeroTecnicos : 1);
+
+                        setState(() {
+                          _diasTrabalho[idx] = dia.copyWith(
+                            tecnicosIds: selecionadosIds,
+                            numeroTecnicos: qtdTec,
+                            nomesTecnicos: strNomes,
+                          );
+                        });
+
+                        Navigator.pop(ctx);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF0A369D),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      child: Text(
+                        'Confirmar Equipe (${selecionadosIds.length} selecionado${selecionadosIds.length == 1 ? "" : "s"})',
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 

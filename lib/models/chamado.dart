@@ -40,7 +40,7 @@ class Chamado {
 
   /// Projeção completa para detalhes do chamado
   static const String selectColumnsCompletas = 
-      'id, numero_ats, razao_social, cnpj, inscricao_estadual, telefone, cliente_email, endereco, cidade, contato, fabricante, modelo_maquina, numero_serie, defeito_relatado, servico_executado, token_url, status, taxa_horaria_comercial, taxa_horaria_extra, taxa_horaria_especial, taxa_km, km_estimado, hora_viagem_estimada, valor_estimado_total, termos_aceitos, aceite_data, responsavel_aceite_nome, responsavel_aceite_cargo, assinatura_url, orcamento_pdf_url, tecnico_id, tecnico_nome, created_at, updated_at';
+      'id, numero_ats, razao_social, cnpj, inscricao_estadual, telefone, cliente_email, endereco, cidade, contato, tipo_atendimento, fabricante, modelo_maquina, numero_serie, defeito_relatado, servico_executado, token_url, status, taxa_horaria_comercial, taxa_horaria_extra, taxa_horaria_especial, taxa_km, km_estimado, hora_viagem_estimada, valor_estimado_total, termos_aceitos, aceite_data, responsavel_aceite_nome, responsavel_aceite_cargo, assinatura_url, orcamento_pdf_url, tecnico_id, tecnico_nome, created_at, updated_at';
 
   final String id;
   final String numeroAts;
@@ -55,6 +55,9 @@ class Chamado {
   final String? contato;
   final String? anotacaoEnvio;
   final DateTime? dataEnvioLink;
+
+  // Tipo de Atendimento Homologado ('SERV. ENG.', 'MANUTENÇÃO', 'INSTALAÇÃO', 'GARANTIA')
+  final String tipoAtendimento;
 
   // Equipamento
   final String? fabricante;
@@ -112,6 +115,7 @@ class Chamado {
     this.clienteEmail,
     this.endereco,
     this.cidade,
+    this.tipoAtendimento = 'MANUTENÇÃO',
     this.fabricante,
     this.modeloMaquina,
     this.numeroSerie,
@@ -154,6 +158,7 @@ class Chamado {
     String? clienteEmail,
     String? endereco,
     String? cidade,
+    String? tipoAtendimento,
     String? fabricante,
     String? modeloMaquina,
     String? numeroSerie,
@@ -195,6 +200,7 @@ class Chamado {
       clienteEmail: clienteEmail ?? this.clienteEmail,
       endereco: endereco ?? this.endereco,
       cidade: cidade ?? this.cidade,
+      tipoAtendimento: tipoAtendimento ?? this.tipoAtendimento,
       fabricante: fabricante ?? this.fabricante,
       modeloMaquina: modeloMaquina ?? this.modeloMaquina,
       numeroSerie: numeroSerie ?? this.numeroSerie,
@@ -239,6 +245,7 @@ class Chamado {
       'cliente_email': clienteEmail,
       'endereco': endereco,
       'cidade': cidade,
+      'tipo_atendimento': tipoAtendimento,
       'fabricante': fabricante,
       'modelo_maquina': modeloMaquina,
       'numero_serie': numeroSerie,
@@ -283,6 +290,7 @@ class Chamado {
       clienteEmail: map['cliente_email'],
       endereco: map['endereco'],
       cidade: map['cidade'],
+      tipoAtendimento: map['tipo_atendimento']?.toString() ?? 'MANUTENÇÃO',
       fabricante: map['fabricante'],
       modeloMaquina: map['modelo_maquina'],
       numeroSerie: map['numero_serie'],

@@ -12,11 +12,13 @@ class DiaTrabalho {
   final String horaViagem;
   final int numeroTecnicos;
   final String nomesTecnicos;
+  final List<String> tecnicosIds;
+  final int? _horasLiquidasMinutosPersistido;
   final DateTime? createdAt;
 
   /// Projeção estrita de colunas para consultas otimizadas
   static const String selectColumns =
-      'id, chamado_id, data, hora_inicio, hora_fim, hora_almoco, hora_viagem, numero_tecnicos, nomes_tecnicos, created_at';
+      'id, chamado_id, data, hora_inicio, hora_fim, hora_almoco, hora_viagem, numero_tecnicos, nomes_tecnicos, tecnicos_ids, horas_liquidas_minutos, created_at';
 
   DiaTrabalho({
     this.id,
@@ -28,8 +30,10 @@ class DiaTrabalho {
     this.horaViagem = '00:00',
     this.numeroTecnicos = 1,
     this.nomesTecnicos = '',
+    this.tecnicosIds = const [],
+    int? horasLiquidasMinutos,
     this.createdAt,
-  });
+  }) : _horasLiquidasMinutosPersistido = horasLiquidasMinutos;
 
   /// Utilitário para converter string "HH:mm" ou "HH:mm:ss" em minutos inteiros
   static int _converterHoraParaMinutos(String? timeStr) {
@@ -54,6 +58,12 @@ class DiaTrabalho {
 
   /// Minutos líquidos trabalhados no dia: (horaFim - horaInicio - horaAlmoco)
   int get horasLiquidasMinutos {
+    final persistido = _horasLiquidasMinutosPersistido;
+    if (persistido != null &&
+        persistido > 0 &&
+        (horaFim == null || horaFim!.trim().isEmpty)) {
+      return persistido;
+    }
     if (horaFim == null || horaFim!.trim().isEmpty) return 0;
     final minInicio = _converterHoraParaMinutos(horaInicio);
     final minFim = _converterHoraParaMinutos(horaFim);
@@ -92,6 +102,8 @@ class DiaTrabalho {
     String? horaViagem,
     int? numeroTecnicos,
     String? nomesTecnicos,
+    List<String>? tecnicosIds,
+    int? horasLiquidasMinutos,
     DateTime? createdAt,
   }) {
     return DiaTrabalho(
@@ -104,6 +116,8 @@ class DiaTrabalho {
       horaViagem: horaViagem ?? this.horaViagem,
       numeroTecnicos: numeroTecnicos ?? this.numeroTecnicos,
       nomesTecnicos: nomesTecnicos ?? this.nomesTecnicos,
+      tecnicosIds: tecnicosIds ?? this.tecnicosIds,
+      horasLiquidasMinutos: horasLiquidasMinutos ?? this.horasLiquidasMinutos,
       createdAt: createdAt ?? this.createdAt,
     );
   }
@@ -112,13 +126,16 @@ class DiaTrabalho {
     return {
       if (id != null) 'id': id,
       if (chamadoId != null) 'chamado_id': chamadoId,
-      'data': '${data.year.toString().padLeft(4, '0')}-${data.month.toString().padLeft(2, '0')}-${data.day.toString().padLeft(2, '0')}',
+      'data':
+          '${data.year.toString().padLeft(4, '0')}-${data.month.toString().padLeft(2, '0')}-${data.day.toString().padLeft(2, '0')}',
       'hora_inicio': horaInicio,
       if (horaFim != null) 'hora_fim': horaFim,
       'hora_almoco': horaAlmoco,
       'hora_viagem': horaViagem,
       'numero_tecnicos': numeroTecnicos,
       'nomes_tecnicos': nomesTecnicos,
+      'tecnicos_ids': tecnicosIds,
+      'horas_liquidas_minutos': horasLiquidasMinutos,
       if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
     };
   }
@@ -141,6 +158,15 @@ class DiaTrabalho {
       return str;
     }
 
+    final List<String> parsedTecnicosIds = [];
+    if (map['tecnicos_ids'] != null && map['tecnicos_ids'] is List) {
+      for (final item in map['tecnicos_ids'] as List) {
+        if (item != null && item.toString().isNotEmpty) {
+          parsedTecnicosIds.add(item.toString());
+        }
+      }
+    }
+
     return DiaTrabalho(
       id: map['id']?.toString(),
       chamadoId: map['chamado_id']?.toString(),
@@ -151,6 +177,8 @@ class DiaTrabalho {
       horaViagem: formatarTimeStr(map['hora_viagem'], '00:00'),
       numeroTecnicos: (map['numero_tecnicos'] as num?)?.toInt() ?? 1,
       nomesTecnicos: map['nomes_tecnicos']?.toString() ?? '',
+      tecnicosIds: parsedTecnicosIds,
+      horasLiquidasMinutos: (map['horas_liquidas_minutos'] as num?)?.toInt(),
       createdAt: map['created_at'] != null ? DateTime.tryParse(map['created_at'].toString()) : null,
     );
   }
