@@ -204,7 +204,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       debugPrint('[AtsForm] Erro ao carregar usuarios/tecnicos: $e');
     }
 
-    // Fallback caso offline ou usuarios vazio: inclui tecnico atribuido e defaults
+    // Fallback caso offline ou usuarios vazio: inclui tecnico atribuido e equipe cadastrada
     if (_listaTecnicosDisponiveis.isEmpty && mounted) {
       final List<Map<String, dynamic>> defaults = [];
       if (widget.chamado?.tecnicoId != null) {
@@ -215,20 +215,17 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
           'perfil': 'Técnico',
         });
       }
-      defaults.addAll([
-        {
-          'id': '00000000-0000-0000-0000-000000000001',
-          'nome': 'Ricardo Santin',
-          'email': 'ricardo@pmach.com.br',
-          'perfil': 'Técnico',
-        },
-        {
-          'id': '00000000-0000-0000-0000-000000000002',
-          'nome': 'Técnico Campo 02',
-          'email': 'tecnico2@pmach.com.br',
-          'perfil': 'Técnico',
-        },
-      ]);
+      final equipeCadastrada = OfflineStorageService.instance.obterTecnicosCache();
+      for (final tec in equipeCadastrada) {
+        if (!defaults.any((d) => d['id'] == tec['id'])) {
+          defaults.add({
+            'id': tec['id'] ?? '',
+            'nome': tec['nome'] ?? '',
+            'email': tec['email'] ?? '',
+            'perfil': 'Técnico',
+          });
+        }
+      }
       setState(() {
         _listaTecnicosDisponiveis = defaults;
       });

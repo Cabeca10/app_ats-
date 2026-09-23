@@ -795,16 +795,69 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                           fontSize: 13,
                         ),
                       ),
-                      ElevatedButton.icon(
-                        onPressed: () => _abrirModalAdicionarTecnico(context),
-                        icon: const Icon(Icons.add, size: 16),
-                        label: const Text('Adicionar Técnico'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF0A369D),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
+                      Row(
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: () async {
+                              final confirm = await showDialog<bool>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: const Row(
+                                    children: [
+                                      Icon(Icons.cleaning_services_rounded, color: Color(0xFFEF4444)),
+                                      SizedBox(width: 8),
+                                      Text('Limpar Equipe Técnica?'),
+                                    ],
+                                  ),
+                                  content: const Text(
+                                    'Deseja remover todos os técnicos para reiniciar os cadastros do zero?',
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(ctx, false),
+                                      child: const Text('Cancelar'),
+                                    ),
+                                    ElevatedButton(
+                                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEF4444)),
+                                      onPressed: () => Navigator.pop(ctx, true),
+                                      child: const Text('Apagar Todos', style: TextStyle(color: Colors.white)),
+                                    ),
+                                  ],
+                                ),
+                              );
+                              if (confirm == true) {
+                                await TecnicosService.instance.limparTudo(limparRemoto: true);
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Equipe técnica limpa com sucesso!'),
+                                      backgroundColor: Color(0xFF10B981),
+                                    ),
+                                  );
+                                }
+                              }
+                            },
+                            icon: const Icon(Icons.delete_sweep_outlined, size: 16, color: Color(0xFFEF4444)),
+                            label: const Text('Limpar Equipe', style: TextStyle(color: Color(0xFFEF4444))),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: Color(0xFFFCA5A5)),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          ElevatedButton.icon(
+                            onPressed: () => _abrirModalAdicionarTecnico(context),
+                            icon: const Icon(Icons.add, size: 16),
+                            label: const Text('Adicionar Técnico'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF0A369D),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),

@@ -15,43 +15,12 @@ class TecnicosService {
   final ValueNotifier<List<Tecnico>> tecnicosNotifier = ValueNotifier<List<Tecnico>>([]);
 
   void _carregarDados() {
-    // 1. Carrega do cache local
+    // 1. Carrega estritamente os técnicos cadastrados pelo usuário no cache local
     final cached = OfflineStorageService.instance.obterTecnicosCache();
     if (cached.isNotEmpty) {
       tecnicosNotifier.value = cached.map((m) => Tecnico.fromMap(m)).toList();
     } else {
       tecnicosNotifier.value = [];
-    }
-
-    // 2. Tenta sincronizar com Supabase se online
-    _sincronizarComSupabase();
-  }
-
-  Future<void> _sincronizarComSupabase() async {
-    try {
-      final response = await Supabase.instance.client
-          .from('usuarios')
-          .select('id, nome, email, perfil')
-          .eq('perfil', 'tecnico');
-
-      if ((response as List).isNotEmpty) {
-        final listaRemota = response.map((item) {
-          return Tecnico(
-            id: item['id']?.toString() ?? const Uuid().v4(),
-            nome: item['nome']?.toString() ?? 'Técnico',
-            telefone: item['telefone']?.toString() ?? '(47) 99999-0000',
-            email: item['email']?.toString(),
-          );
-        }).toList();
-
-        // Mescla com locais para não perder nenhum dado
-        final ids = listaRemota.map((t) => t.id).toSet();
-        final extras = tecnicosNotifier.value.where((t) => !ids.contains(t.id)).toList();
-        tecnicosNotifier.value = [...listaRemota, ...extras];
-        await _salvarLocalmente();
-      }
-    } catch (e) {
-      debugPrint('[TecnicosService] Uso de cache local para equipe técnica: $e');
     }
   }
 
@@ -93,16 +62,30 @@ class TecnicosService {
     return novo;
   }
 
-  /// Remove um técnico da lista
+  /// Remove um técnico da lista e do banco remoto se existir
   Future<void> removerTecnico(String id) async {
     tecnicosNotifier.value = tecnicosNotifier.value.where((t) => t.id != id).toList();
     await _salvarLocalmente();
+    try {
+      await Supabase.instance.client.from('usuarios').delete().eq('id', id);
+    } catch (_) {}
   }
 
   /// Limpa toda a equipe técnica da simulação
-  Future<void> limparTudo() async {
+  Future<void> limparTudo({bool limparRemoto = true}) async {
     tecnicosNotifier.value = [];
     await _salvarLocalmente();
+    if (limparRemoto) {
+      try {
+        await Supabase.instance.client
+            .from('usuarios')
+            .delete()
+            .eq('perfil', 'tecnico');
+        debugPrint('[TecnicosService] Técnicos remotos removidos com sucesso.');
+      } catch (e) {
+        debugPrint('[TecnicosService] Aviso ao limpar tecnicos remotos: $e');
+      }
+    }
     debugPrint('[TecnicosService] Equipe técnica limpa.');
   }
 
