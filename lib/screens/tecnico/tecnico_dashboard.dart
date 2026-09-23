@@ -11,6 +11,7 @@ import '../../services/chamados_service.dart';
 import '../../services/offline_storage_service.dart';
 import '../../services/orcamento_pdf_service.dart';
 import '../../services/pwa_helper.dart';
+import 'package:uuid/uuid.dart';
 
 const Color _emerald = Color(0xFF10B981);
 const Color _emeraldDark = Color(0xFF065F46);
@@ -981,12 +982,7 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
 
   // PAGE 2: MANUAIS (SERVICE MANUALS)
   Widget _buildManuaisPage() {
-    final List<Map<String, String>> manuals = [
-      {"title": "Manual Haas CNC ST-20", "desc": "Instruções de operação e manutenção de painel", "size": "4.2 MB"},
-      {"title": "Guia Calibração CLP Siemens S7", "desc": "Parâmetros e endereçamento analógico I/O", "size": "1.8 MB"},
-      {"title": "Catálogo Peças Injetora Husky", "desc": "Códigos de injetores e válvulas proporcionais", "size": "8.5 MB"},
-      {"title": "Manual Operacional Inversor WEG", "desc": "Instalação e parametrização avançada CFW", "size": "2.4 MB"},
-    ];
+    final List<Map<String, String>> manuals = [];
 
     return Padding(
       padding: const EdgeInsets.all(16.0),
@@ -999,7 +995,7 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
           ),
           const SizedBox(height: 4),
           Text(
-            'Acesse documentações técnicas mesmo offline.',
+            'Acesse documentações técnicas e esquemas.',
             style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
           ),
           const SizedBox(height: 16),
@@ -1020,58 +1016,91 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
               ),
             ),
           ),
-          const SizedBox(height: 16),
-          // Manual List
+          const SizedBox(height: 24),
+          // Lista de Manuais com Empty State Limpo (Sem dados mockados)
           Expanded(
-            child: ListView.builder(
-              itemCount: manuals.length,
-              itemBuilder: (context, index) {
-                final manual = manuals[index];
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.grey.shade200),
-                  ),
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    leading: Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: Colors.red.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(Icons.picture_as_pdf, color: Colors.redAccent),
-                    ),
-                    title: Text(
-                      manual["title"]!,
-                      style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0C1A30)),
-                    ),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: 4),
-                        Text(manual["desc"]!, style: const TextStyle(fontSize: 12)),
-                        const SizedBox(height: 2),
-                        Text(manual["size"]!, style: TextStyle(fontSize: 11, color: Colors.grey.shade500, fontWeight: FontWeight.w600)),
-                      ],
-                    ),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.download_for_offline, color: Color(0xFF0A369D)),
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('${manual["title"]} salvo para acesso offline.'),
-                            backgroundColor: Colors.green,
+            child: manuals.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 28.0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(22),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF1F5F9),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: const Color(0xFFE2E8F0)),
+                            ),
+                            child: const Icon(
+                              Icons.menu_book_outlined,
+                              size: 48,
+                              color: Color(0xFF94A3B8),
+                            ),
                           ),
-                        );
-                      },
+                          const SizedBox(height: 16),
+                          const Text(
+                            'Nenhum manual cadastrado',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF1E293B),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Documentos técnicos, diagramas e manuais de fabricantes serão disponibilizados aqui de acordo com as máquinas atribuídas aos seus atendimentos.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey.shade600,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
+                  )
+                : ListView.builder(
+                    itemCount: manuals.length,
+                    itemBuilder: (context, index) {
+                      final manual = manuals[index];
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.grey.shade200),
+                        ),
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          leading: Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.red.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(Icons.picture_as_pdf, color: Colors.redAccent),
+                          ),
+                          title: Text(
+                            manual["title"]!,
+                            style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0C1A30)),
+                          ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const SizedBox(height: 4),
+                              Text(manual["desc"]!, style: const TextStyle(fontSize: 12)),
+                              const SizedBox(height: 2),
+                              Text(manual["size"]!, style: TextStyle(fontSize: 11, color: Colors.grey.shade500, fontWeight: FontWeight.w600)),
+                            ],
+                          ),
+                          trailing: const Icon(Icons.download_for_offline, color: Color(0xFF0A369D)),
+                        ),
+                      );
+                    },
                   ),
-                );
-              },
-            ),
           ),
         ],
       ),
@@ -1081,7 +1110,16 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
   // PAGE 3: PERFIL (PROFILE & SETTINGS)
   Widget _buildPerfilPage() {
     final user = Supabase.instance.client.auth.currentUser;
-    final email = user?.email ?? "tecnico@atsservicos.com.br";
+    final email = user?.email ?? (AppAuthState.bypassAuth ? "Modo Simulação" : "Não conectado");
+    final nome = user?.userMetadata?['nome']?.toString() ??
+        (user?.email != null ? user!.email!.split('@').first : 'Técnico Operacional');
+
+    // Estatísticas reais calculadas a partir da lista real de atendimentos
+    final totalChamados = _tickets.length;
+    final chamadosConcluidos = _tickets.where((t) => t.status == 'Concluído').length;
+    final taxaConclusaoStr = totalChamados > 0
+        ? '${((chamadosConcluidos / totalChamados) * 100).toStringAsFixed(0)}%'
+        : '0%';
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24.0),
@@ -1102,9 +1140,9 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
             ),
           ),
           const SizedBox(height: 16),
-          const Text(
-            'Técnico Operacional',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0C1A30)),
+          Text(
+            nome,
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0C1A30)),
           ),
           const SizedBox(height: 4),
           Text(
@@ -1113,7 +1151,7 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
           ),
           const SizedBox(height: 24),
 
-          // Simple Stat Grid Card
+          // Painel de Estatísticas Reais da Simulação / Atendimento
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -1121,22 +1159,31 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: Colors.grey.shade200),
             ),
-            child: const Row(
+            child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
                 Column(
                   children: [
-                    Text('Chamados do Mês', style: TextStyle(fontSize: 11, color: Colors.grey)),
-                    SizedBox(height: 4),
-                    Text('24', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0A369D))),
+                    const Text('Chamados do Mês', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                    const SizedBox(height: 4),
+                    Text(
+                      '$totalChamados',
+                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0A369D)),
+                    ),
                   ],
                 ),
-                VerticalDivider(width: 20, thickness: 1),
+                const SizedBox(
+                  height: 32,
+                  child: VerticalDivider(width: 20, thickness: 1),
+                ),
                 Column(
                   children: [
-                    Text('Taxa Conclusão', style: TextStyle(fontSize: 11, color: Colors.grey)),
-                    SizedBox(height: 4),
-                    Text('96.2%', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: _emerald)),
+                    const Text('Taxa Conclusão', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                    const SizedBox(height: 4),
+                    Text(
+                      taxaConclusaoStr,
+                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: _emerald),
+                    ),
                   ],
                 ),
               ],
@@ -1153,11 +1200,84 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
             ),
             child: Column(
               children: [
-                _buildProfileItem(Icons.settings, 'Configurações de Sincronização'),
+                _buildProfileItem(
+                  Icons.settings_outlined,
+                  'Configurações de Sincronização',
+                  onTap: () {
+                    showDialog(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('Status de Sincronização'),
+                        content: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  _isOnline ? Icons.cloud_done : Icons.cloud_off,
+                                  color: _isOnline ? _emerald : Colors.redAccent,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(_isOnline ? 'Online (Supabase Conectado)' : 'Modo Offline (Hive Ativo)'),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'Todos os atendimentos, relatórios e documentações preenchidos offline são armazenados localmente e sincronizados de forma atômica.',
+                              style: TextStyle(fontSize: 13, color: Colors.black87),
+                            ),
+                          ],
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            child: const Text('OK'),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
                 const Divider(height: 1, thickness: 0.5),
-                _buildProfileItem(Icons.wifi_off, 'Banco de Dados Local (Cache)'),
+                _buildProfileItem(
+                  Icons.storage_outlined,
+                  'Banco de Dados Local (Cache)',
+                  onTap: _confirmarLimpezaSimulacao,
+                ),
                 const Divider(height: 1, thickness: 0.5),
-                _buildProfileItem(Icons.help_outline, 'Suporte Técnico e Ajuda'),
+                _buildProfileItem(
+                  Icons.help_outline,
+                  'Suporte Técnico e Ajuda',
+                  onTap: () {
+                    showDialog(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('Suporte Técnico ATS'),
+                        content: const Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Pmach Equipamentos e Peças Ltda',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            SizedBox(height: 8),
+                            Text('Central de Atendimento: (47) 3456-7890'),
+                            SizedBox(height: 4),
+                            Text('Plantão Técnico: suporte@pmach.com.br'),
+                          ],
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            child: const Text('Fechar'),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
               ],
             ),
           ),
@@ -1217,37 +1337,39 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
     );
   }
 
-  Widget _buildProfileItem(IconData icon, String title) {
+  Widget _buildProfileItem(IconData icon, String title, {VoidCallback? onTap}) {
     return ListTile(
       leading: Icon(icon, color: Colors.grey.shade600),
       title: Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
       trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
-      onTap: () {},
+      onTap: onTap,
     );
   }
 
   Future<void> _abrirPdfOrcamento(Ticket ticket) async {
-    final mockChamado = Chamado(
-      id: ticket.id,
-      numeroAts: ticket.id.replaceAll('ATS-', ''),
-      razaoSocial: ticket.companyName,
-      modeloMaquina: ticket.machineModel,
-      defeitoRelatado: ticket.defeitoRelatado ?? 'Revisão geral',
-      endereco: ticket.address,
-      tokenUrl: 'mock-token',
-      status: ChamadoStatus.atribuido,
-      termosAceitos: true,
-      responsavelAceiteNome: 'Cliente Aprovador',
-      responsavelAceiteCargo: 'Gerente Operacional',
-      aceiteData: DateTime.now(),
-    );
+    final chamado = ChamadosService.instance.obterChamadoPorId(ticket.chamadoId ?? '') ??
+        ChamadosService.instance.obterChamadoPorNumeroAts(ticket.numeroAts ?? '') ??
+        Chamado(
+          id: ticket.chamadoId ?? ticket.id,
+          numeroAts: ticket.numeroAts ?? ticket.id.replaceAll('ATS-', ''),
+          razaoSocial: ticket.companyName,
+          modeloMaquina: ticket.machineModel,
+          defeitoRelatado: ticket.defeitoRelatado,
+          endereco: ticket.address,
+          tokenUrl: const Uuid().v4(),
+          status: ticket.status == 'Concluído' ? ChamadoStatus.finalizado : ChamadoStatus.atribuido,
+          termosAceitos: true,
+          responsavelAceiteNome: 'Cliente Aprovador',
+          responsavelAceiteCargo: 'Responsável',
+          aceiteData: DateTime.now(),
+        );
 
     final dummySignature = List<int>.generate(80, (i) => 255);
     final pdfBytes = await OrcamentoPdfService.generatePdf(
-      chamado: mockChamado,
+      chamado: chamado,
       signatureBytes: Uint8List.fromList(dummySignature),
-      responsavelNome: mockChamado.responsavelAceiteNome!,
-      responsavelCargo: mockChamado.responsavelAceiteCargo!,
+      responsavelNome: chamado.responsavelAceiteNome ?? 'Cliente',
+      responsavelCargo: chamado.responsavelAceiteCargo ?? 'Responsável',
     );
 
     await Printing.layoutPdf(
