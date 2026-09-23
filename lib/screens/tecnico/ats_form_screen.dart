@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:signature/signature.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -64,12 +63,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
   // 3. Serviço Executado
   final _servicoExecutadoCtrl = TextEditingController();
 
-  // 4. Mídia
-  final ImagePicker _picker = ImagePicker();
-  final List<XFile> _fotosCapturadas = [];
-  XFile? _videoGravado;
-
-  // 5. Assinatura
+  // 4. Assinatura
   late final SignatureController _signatureController;
   final _responsavelNomeCtrl = TextEditingController();
 
@@ -422,8 +416,8 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       'refeicao': refeicao,
       'servico_executado': _servicoExecutadoCtrl.text.trim(),
       'responsavel_nome': _responsavelNomeCtrl.text.trim(),
-      'qtd_fotos': _fotosCapturadas.length,
-      'tem_video': _videoGravado != null,
+      'qtd_fotos': 0,
+      'tem_video': false,
       'pending_sync': true,
     };
 
@@ -548,58 +542,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
     super.dispose();
   }
 
-  // ============================================================================
-  // CAPTURA DE MÍDIA NATIVA (FOTO E VÍDEO CURTO)
-  // ============================================================================
-  Future<void> _capturarFoto() async {
-    try {
-      final photo = await _picker.pickImage(
-        source: ImageSource.camera,
-        imageQuality: 85,
-      );
-      if (photo != null) {
-        setState(() {
-          _fotosCapturadas.add(photo);
-        });
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Foto adicionada (${_fotosCapturadas.length} total)'),
-              backgroundColor: const Color(0xFF10B981),
-              duration: const Duration(seconds: 2),
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      debugPrint('Erro ao capturar foto: $e');
-    }
-  }
 
-  Future<void> _gravarVideo() async {
-    try {
-      final video = await _picker.pickVideo(
-        source: ImageSource.camera,
-        maxDuration: const Duration(seconds: 30),
-      );
-      if (video != null) {
-        setState(() {
-          _videoGravado = video;
-        });
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Vídeo de teste registrado com sucesso!'),
-              backgroundColor: Color(0xFF10B981),
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      debugPrint('Erro ao gravar vídeo: $e');
-    }
-  }
 
   // ============================================================================
   // FLUXO DE FINALIZAÇÃO (OFFLINE-FIRST)
@@ -678,8 +621,8 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       'refeicao': refeicao,
       'servico_executado': _servicoExecutadoCtrl.text.trim(),
       'responsavel_nome': _responsavelNomeCtrl.text.trim(),
-      'qtd_fotos': _fotosCapturadas.length,
-      'tem_video': _videoGravado != null,
+      'qtd_fotos': 0,
+      'tem_video': false,
       'pending_sync': true,
     };
 
@@ -774,25 +717,8 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         debugPrint('Aviso upload assinatura: $e');
       }
 
-      // B. Upload de vídeo (se gravado)
-      String? videoUrl;
-      if (_videoGravado != null) {
-        final videoBytes = await _videoGravado!.readAsBytes();
-        final videoPath = 'videos/ats_${_numeroAts}_$timestamp.mp4';
-        try {
-          await client.storage.from('orcamentos').uploadBinary(
-                videoPath,
-                videoBytes,
-                fileOptions: const FileOptions(contentType: 'video/mp4', upsert: true),
-              );
-          videoUrl = client.storage.from('orcamentos').getPublicUrl(videoPath);
-        } catch (e) {
-          debugPrint('Aviso upload video: $e');
-        }
-      }
-
-      // Fallback para URL do vídeo do teste (simulada se bucket indisponível)
-      videoUrl ??= 'https://pmach.com.br/ats/video/$_numeroAts';
+      // B. URL de referência do atendimento
+      final String videoUrl = 'https://pmach.com.br/ats/video/$_numeroAts';
 
       // C. Gerar layout do relatório em PDF (com assinatura e QR Code do vídeo)
       final chamadoAtual = (widget.chamado != null)
@@ -1041,13 +967,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
                 const SizedBox(height: 16),
 
                 // -------------------------------------------------------------
-                // SEÇÃO 4: MÍDIA (BOTÕES NATIVOS FOTO E VÍDEO CURTO)
-                // -------------------------------------------------------------
-                _buildCardMidia(),
-                const SizedBox(height: 16),
-
-                // -------------------------------------------------------------
-                // SEÇÃO 5: ASSINATURA (WIDGET SIGNATURE NO ECRÃ)
+                // SEÇÃO 4: ASSINATURA (WIDGET SIGNATURE NO ECRÃ)
                 // -------------------------------------------------------------
                 _buildCardAssinatura(),
                 const SizedBox(height: 24),
@@ -2224,109 +2144,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
     );
   }
 
-  /// SEÇÃO 4: Mídia (botões nativos para capturar foto e gravar vídeo curto)
-  Widget _buildCardMidia() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 8, offset: const Offset(0, 2)),
-        ],
-      ),
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
-            children: [
-              Icon(Icons.perm_media_outlined, color: Color(0xFF0A369D), size: 20),
-              SizedBox(width: 8),
-              Text(
-                'Evidências e Mídias Técnicas',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              // Botão Nativo: Capturar Foto
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _capturarFoto,
-                  icon: const Icon(Icons.camera_alt, color: Color(0xFF0A369D)),
-                  label: Text(
-                    _fotosCapturadas.isEmpty
-                        ? 'Capturar Foto'
-                        : 'Fotos (${_fotosCapturadas.length})',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0A369D)),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    side: const BorderSide(color: Color(0xFF0A369D)),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              // Botão Nativo: Gravar Vídeo Curto
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: _gravarVideo,
-                  icon: Icon(
-                    Icons.videocam,
-                    color: _videoGravado != null ? const Color(0xFF10B981) : const Color(0xFF0A369D),
-                  ),
-                  label: Text(
-                    _videoGravado != null ? 'Vídeo Gravado ✓' : 'Gravar Vídeo',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 13,
-                      color: _videoGravado != null ? const Color(0xFF10B981) : const Color(0xFF0A369D),
-                    ),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    side: BorderSide(
-                      color: _videoGravado != null ? const Color(0xFF10B981) : const Color(0xFF0A369D),
-                    ),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          if (_videoGravado != null) ...[
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: const Color(0xFFECFDF5),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: const Color(0xFFA7F3D0)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.check_circle, size: 16, color: Color(0xFF10B981)),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      'Vídeo do teste pronto para envio e geração de QR Code no PDF.',
-                      style: const TextStyle(fontSize: 11, color: Color(0xFF065F46)),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  /// SEÇÃO 5: Assinatura (área com widget Signature no ecrã)
+  /// SEÇÃO 4: Assinatura (área com widget Signature no ecrã)
   Widget _buildCardAssinatura() {
     return Container(
       decoration: BoxDecoration(
