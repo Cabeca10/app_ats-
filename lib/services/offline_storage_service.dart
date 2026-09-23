@@ -30,6 +30,16 @@ class OfflineStorageService {
     return _box!;
   }
 
+  /// Limpa todos os dados armazenados localmente no Hive
+  Future<void> limparTudo() async {
+    try {
+      await box.clear();
+      debugPrint('[OfflineStorage] Cache local limpo com sucesso.');
+    } catch (e) {
+      debugPrint('[OfflineStorage] Erro ao limpar cache Hive: $e');
+    }
+  }
+
   /// Salva ou atualiza um atendimento localmente com a flag de sincronização
   Future<void> salvarAtendimentoLocal({
     required String id,

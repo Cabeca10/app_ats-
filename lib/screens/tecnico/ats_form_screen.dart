@@ -120,34 +120,23 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         }
       }
     } else {
-      _chamadoId = 'c-014742';
-      _numeroAts = '014742';
-      _razaoSocial = 'Cliente Pmach Industrial';
-      _endereco = 'Rua das Indústrias, 100';
-      _emailCliente = 'contato@pmach.com.br';
+      _chamadoId = '';
+      _numeroAts = '';
+      _razaoSocial = '';
+      _endereco = '';
+      _emailCliente = '';
       _tipoAtendimento = 'MANUTENÇÃO';
-      _modeloMaquina = 'Torno CNC Brother TC-R23';
-      _fabricante = 'Brother';
-      _numeroSerie = 'BR-2026-99';
-      _defeitoRelatado = 'Falha no servo acionamento eixo Z';
+      _modeloMaquina = '';
+      _fabricante = '';
+      _numeroSerie = '';
+      _defeitoRelatado = '';
     }
 
     // Inicializa lista de dias trabalhados
     if (widget.chamado != null && widget.chamado!.diasTrabalho.isNotEmpty) {
       _diasTrabalho = List.from(widget.chamado!.diasTrabalho);
     } else {
-      _diasTrabalho = [
-        DiaTrabalho(
-          chamadoId: _chamadoId,
-          data: DateTime.now(),
-          horaInicio: '08:00',
-          horaFim: '17:00',
-          horaAlmoco: '01:00',
-          horaViagem: '00:00',
-          numeroTecnicos: 1,
-          nomesTecnicos: widget.chamado?.tecnicoNome ?? 'Técnico Responsável',
-        ),
-      ];
+      _diasTrabalho = [];
     }
 
     // Tenta restaurar dados locais offline previamente salvos se houver

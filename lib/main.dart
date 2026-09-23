@@ -6,6 +6,7 @@ import 'screens/tecnico/tecnico_dashboard.dart';
 import 'screens/gerente/gerente_dashboard.dart';
 import 'screens/cliente/orcamento_client_screen.dart';
 import 'services/offline_storage_service.dart';
+import 'services/chamados_service.dart';
 
 // ============================================================================
 // CONFIGURAÇÃO DO SUPABASE (REGRA DE APPSEC INEGOCIÁVEL)
@@ -31,6 +32,10 @@ Future<void> main() async {
 
   // 1. Inicializa o Hive para persistência offline-first
   await OfflineStorageService.instance.init();
+
+  // 1.1 Limpa o armazenamento local para permitir simulação limpa
+  await OfflineStorageService.instance.limparTudo();
+  await ChamadosService.instance.limparTudo();
 
   // 2. Inicializa o Supabase com estrita anon_key pública
   try {

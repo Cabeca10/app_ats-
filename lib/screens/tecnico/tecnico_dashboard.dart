@@ -56,20 +56,7 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
   bool _isOnline = true;
   late final StreamSubscription<List<ConnectivityResult>> _connectivitySub;
 
-  List<Ticket> _tickets = [
-    Ticket(
-      id: "ATS-2026-081",
-      chamadoId: "c-014742",
-      numeroAts: "014742",
-      companyName: "Metalúrgica Alfa S.A.",
-      machineModel: "Torno CNC Haas ST-20",
-      scheduledTime: "09:00 - 11:30",
-      priority: "Alta",
-      status: "Pendente",
-      address: "Av. Industrial, 1024 - Joinville",
-      defeitoRelatado: "Alarme 102 - Sobrecarga no servo motor eixo Z",
-    ),
-  ];
+  List<Ticket> _tickets = [];
 
   @override
   void initState() {
@@ -143,7 +130,14 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
         }
         return;
       } else {
-        _carregarDoCacheLocal();
+        await OfflineStorageService.instance.salvarChamadosTecnicoCache([]);
+        if (mounted) {
+          setState(() {
+            _tickets = [];
+            _isOnline = true;
+          });
+        }
+        return;
       }
     } catch (e) {
       debugPrint('[TecnicoDashboard] Erro na rede, recorrendo ao cache Hive: $e');
@@ -198,6 +192,57 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
             _tickets = list;
           });
         }
+      } else {
+        if (mounted) {
+          setState(() {
+            _tickets = [];
+          });
+        }
+      }
+    }
+  }
+
+  Future<void> _confirmarLimpezaSimulacao() async {
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.cleaning_services_rounded, color: Color(0xFFEF4444)),
+            SizedBox(width: 8),
+            Text('Limpar Simulação?'),
+          ],
+        ),
+        content: const Text(
+          'Deseja limpar todos os atendimentos (criados, abertos, em andamento e concluídos) para iniciar uma nova simulação do zero?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEF4444)),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Limpar Tudo', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar == true && mounted) {
+      await ChamadosService.instance.limparTudo(limparRemoto: true);
+      await OfflineStorageService.instance.salvarChamadosTecnicoCache([]);
+      if (mounted) {
+        setState(() {
+          _tickets = [];
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Todos os atendimentos foram limpos. Pronto para nova simulação!'),
+            backgroundColor: Color(0xFF10B981),
+          ),
+        );
       }
     }
   }
@@ -313,6 +358,11 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
               ),
             ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.cleaning_services_outlined, color: Color(0xFF64748B)),
+            onPressed: _confirmarLimpezaSimulacao,
+            tooltip: 'Limpar Atendimentos (Simulação)',
           ),
           IconButton(
             icon: const Icon(Icons.logout, color: Colors.grey),
