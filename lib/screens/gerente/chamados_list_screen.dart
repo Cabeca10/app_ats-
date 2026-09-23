@@ -10,6 +10,7 @@ import '../../models/log_horas_custos.dart';
 import '../../services/ats_pdf_service.dart';
 import '../../services/chamados_service.dart';
 import '../../services/orcamento_pdf_service.dart';
+import '../../services/tecnicos_service.dart';
 
 class ChamadosListScreen extends StatefulWidget {
   const ChamadosListScreen({super.key});
@@ -23,12 +24,7 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
   String? _enviandoEmailChamadoId;
   final _dateFormat = DateFormat('dd/MM/yyyy HH:mm');
 
-  final List<String> _tecnicosDisponiveis = [
-    'Carlos Silva',
-    'André Souza',
-    'Marcos Oliveira',
-    'Lucas Pereira',
-  ];
+  List<String> get _tecnicosDisponiveis => TecnicosService.instance.nomesTecnicos;
 
   Future<void> _confirmarLimpezaSimulacao() async {
     final confirmar = await showDialog<bool>(
@@ -827,7 +823,26 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
   }
 
   void _mostrarModalAtribuirTecnico(BuildContext context, Chamado chamado) {
-    String tecnicoSelecionado = _tecnicosDisponiveis.first;
+    if (_tecnicosDisponiveis.isEmpty) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Nenhum Técnico Cadastrado'),
+          content: const Text(
+            'Para atribuir um chamado, cadastre primeiro ao menos um profissional na aba "Equipe de Técnicos em Campo".',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    String tecnicoSelecionado = chamado.tecnicoNome ?? _tecnicosDisponiveis.first;
 
     showDialog(
       context: context,

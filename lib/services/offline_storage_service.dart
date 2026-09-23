@@ -121,4 +121,19 @@ class OfflineStorageService {
     }
     return null;
   }
+
+  /// Salva lista de técnicos cadastrados no cache do Hive
+  Future<void> salvarTecnicosCache(List<Map<String, dynamic>> tecnicos) async {
+    await box.put('cached_equipe_tecnicos', tecnicos);
+    debugPrint('[OfflineStorage] ${tecnicos.length} técnicos salvos no cache local.');
+  }
+
+  /// Recupera a lista de técnicos do cache local do Hive
+  List<Map<String, dynamic>> obterTecnicosCache() {
+    final cached = box.get('cached_equipe_tecnicos');
+    if (cached != null && cached is List) {
+      return cached.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    }
+    return [];
+  }
 }

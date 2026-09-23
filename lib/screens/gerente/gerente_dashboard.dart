@@ -5,8 +5,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/chamado.dart';
 import '../../models/dia_trabalho.dart';
 import '../../models/log_horas_custos.dart';
+import '../../models/tecnico.dart';
 import '../../services/ats_pdf_service.dart';
 import '../../services/chamados_service.dart';
+import '../../services/tecnicos_service.dart';
 
 const Color _emerald = Color(0xFF10B981);
 
@@ -25,12 +27,7 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
   String? _enviandoEmailChamadoId;
   final _dateFormat = DateFormat('dd/MM/yyyy HH:mm');
 
-  final List<String> _tecnicosDisponiveis = [
-    'Carlos Silva',
-    'André Souza',
-    'Marcos Oliveira',
-    'Lucas Pereira',
-  ];
+  List<String> get _tecnicosDisponiveis => TecnicosService.instance.nomesTecnicos;
 
   @override
   Widget build(BuildContext context) {
@@ -209,6 +206,21 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                       ),
                       Row(
                         children: [
+                          if (_selectedMenuIndex == 2) ...[
+                            ElevatedButton.icon(
+                              onPressed: () => _abrirModalAdicionarTecnico(context),
+                              icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
+                              label: const Text('+ Adicionar Técnico'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: _emerald,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                elevation: 2,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                          ],
                           // Botão Principal de Ação: Criar e Atribuir Serviço
                           ElevatedButton.icon(
                             onPressed: () => _abrirModalCriarEAtribuir(context),
@@ -704,44 +716,346 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
   // PÁGINA 2: EQUIPE TÉCNICA
   // ============================================================================
   Widget _buildEquipeTecnicaPage() {
-    return ValueListenableBuilder<List<Chamado>>(
-      valueListenable: ChamadosService.instance.chamadosNotifier,
-      builder: (context, chamados, _) {
-        return ListView.builder(
-          padding: const EdgeInsets.all(20),
-          itemCount: _tecnicosDisponiveis.length,
-          itemBuilder: (context, index) {
-            final nome = _tecnicosDisponiveis[index];
-            final chamadosDoTecnico = chamados.where((c) => c.tecnicoNome == nome).toList();
-            final emAndamento = chamadosDoTecnico.where((c) => c.status != ChamadoStatus.finalizado).length;
-
-            return Card(
-              margin: const EdgeInsets.only(bottom: 12),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              elevation: 1,
-              child: ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: const Color(0xFF0A369D),
-                  child: Text(nome[0], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                ),
-                title: Text(nome, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                subtitle: Text(
-                  emAndamento > 0
-                      ? 'Em atendimento ($emAndamento ordem(ns) atribuída(s))'
-                      : 'Disponível para novos atendimentos',
-                  style: TextStyle(
-                    color: emAndamento > 0 ? const Color(0xFF1D4ED8) : _emerald,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
+    return ValueListenableBuilder<List<Tecnico>>(
+      valueListenable: TecnicosService.instance.tecnicosNotifier,
+      builder: (context, tecnicos, _) {
+        return ValueListenableBuilder<List<Chamado>>(
+          valueListenable: ChamadosService.instance.chamadosNotifier,
+          builder: (context, chamados, _) {
+            if (tecnicos.isEmpty) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(32.0),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(24),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F5F9),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: const Icon(
+                          Icons.engineering_outlined,
+                          size: 52,
+                          color: Color(0xFF94A3B8),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      const Text(
+                        'Nenhum técnico cadastrado na equipe',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF1E293B),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Adicione técnicos informando nome e telefone para que possam receber ordens de serviço e realizar atendimentos.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Color(0xFF64748B),
+                          height: 1.4,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      ElevatedButton.icon(
+                        onPressed: () => _abrirModalAdicionarTecnico(context),
+                        icon: const Icon(Icons.person_add_alt_1_rounded),
+                        label: const Text('Cadastrar Primeiro Técnico'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF0A369D),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          elevation: 2,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                trailing: Chip(
-                  label: Text('$emAndamento O.S. ativas', style: const TextStyle(fontSize: 11)),
-                  backgroundColor: const Color(0xFFF1F5F9),
+              );
+            }
+
+            return Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Total de Profissionais: ${tecnicos.length}',
+                        style: const TextStyle(
+                          color: Color(0xFF64748B),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                      ),
+                      ElevatedButton.icon(
+                        onPressed: () => _abrirModalAdicionarTecnico(context),
+                        icon: const Icon(Icons.add, size: 16),
+                        label: const Text('Adicionar Técnico'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF0A369D),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+                Expanded(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.all(20),
+                    itemCount: tecnicos.length,
+                    itemBuilder: (context, index) {
+                      final tec = tecnicos[index];
+                      final chamadosDoTecnico = chamados.where((c) => c.tecnicoNome == tec.nome || c.tecnicoId == tec.id).toList();
+                      final emAndamento = chamadosDoTecnico.where((c) => c.status != ChamadoStatus.finalizado).length;
+
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        elevation: 1,
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          leading: CircleAvatar(
+                            radius: 22,
+                            backgroundColor: const Color(0xFF0A369D),
+                            child: Text(
+                              tec.nome.isNotEmpty ? tec.nome[0].toUpperCase() : 'T',
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                            ),
+                          ),
+                          title: Row(
+                            children: [
+                              Text(tec.nome, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                              if (tec.especialidade != null && tec.especialidade!.isNotEmpty) ...[
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFEFF6FF),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    tec.especialidade!,
+                                    style: const TextStyle(color: Color(0xFF2563EB), fontSize: 11, fontWeight: FontWeight.w600),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  const Icon(Icons.phone, size: 13, color: Color(0xFF64748B)),
+                                  const SizedBox(width: 4),
+                                  Text(tec.telefone, style: const TextStyle(fontSize: 12, color: Color(0xFF475569))),
+                                  if (tec.email != null && tec.email!.isNotEmpty) ...[
+                                    const SizedBox(width: 12),
+                                    const Icon(Icons.email_outlined, size: 13, color: Color(0xFF64748B)),
+                                    const SizedBox(width: 4),
+                                    Text(tec.email!, style: const TextStyle(fontSize: 12, color: Color(0xFF475569))),
+                                  ],
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                emAndamento > 0
+                                    ? 'Em atendimento ($emAndamento ordem(ns) atribuída(s))'
+                                    : 'Disponível para novos atendimentos',
+                                style: TextStyle(
+                                  color: emAndamento > 0 ? const Color(0xFF1D4ED8) : _emerald,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Chip(
+                                label: Text('$emAndamento O.S. ativas', style: const TextStyle(fontSize: 11)),
+                                backgroundColor: const Color(0xFFF1F5F9),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete_outline, size: 18, color: Colors.grey),
+                                tooltip: 'Remover técnico',
+                                onPressed: () async {
+                                  final confirm = await showDialog<bool>(
+                                    context: context,
+                                    builder: (c) => AlertDialog(
+                                      title: const Text('Remover Técnico'),
+                                      content: Text('Deseja remover ${tec.nome} da equipe?'),
+                                      actions: [
+                                        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancelar')),
+                                        ElevatedButton(
+                                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEF4444)),
+                                          onPressed: () => Navigator.pop(c, true),
+                                          child: const Text('Remover', style: TextStyle(color: Colors.white)),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                  if (confirm == true) {
+                                    await TecnicosService.instance.removerTecnico(tec.id);
+                                  }
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
             );
           },
+        );
+      },
+    );
+  }
+
+  // ============================================================================
+  // MODAL: ADICIONAR NOVO TÉCNICO
+  // ============================================================================
+  void _abrirModalAdicionarTecnico(BuildContext context) {
+    final formKey = GlobalKey<FormState>();
+    final nomeCtrl = TextEditingController();
+    final telefoneCtrl = TextEditingController();
+    final emailCtrl = TextEditingController();
+    final especialidadeCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.person_add_alt_1_rounded, color: Color(0xFF0A369D)),
+              SizedBox(width: 10),
+              Text('Adicionar Técnico', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: SizedBox(
+            width: 440,
+            child: Form(
+              key: formKey,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Cadastre as informações de contato do profissional:',
+                      style: TextStyle(color: Color(0xFF64748B), fontSize: 13),
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: nomeCtrl,
+                      decoration: InputDecoration(
+                        labelText: 'Nome do Técnico *',
+                        hintText: 'Ex: Carlos Silva',
+                        prefixIcon: const Icon(Icons.person_outline),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        isDense: true,
+                      ),
+                      validator: (v) => v == null || v.trim().isEmpty ? 'Informe o nome do técnico' : null,
+                    ),
+                    const SizedBox(height: 14),
+                    TextFormField(
+                      controller: telefoneCtrl,
+                      keyboardType: TextInputType.phone,
+                      decoration: InputDecoration(
+                        labelText: 'Telefone / WhatsApp *',
+                        hintText: 'Ex: (47) 99876-5432',
+                        prefixIcon: const Icon(Icons.phone_outlined),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        isDense: true,
+                      ),
+                      validator: (v) => v == null || v.trim().isEmpty ? 'Informe o telefone de contato' : null,
+                    ),
+                    const SizedBox(height: 14),
+                    TextFormField(
+                      controller: emailCtrl,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: InputDecoration(
+                        labelText: 'E-mail (opcional)',
+                        hintText: 'Ex: carlos.silva@pmach.com.br',
+                        prefixIcon: const Icon(Icons.email_outlined),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        isDense: true,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    TextFormField(
+                      controller: especialidadeCtrl,
+                      decoration: InputDecoration(
+                        labelText: 'Especialidade (opcional)',
+                        hintText: 'Ex: Manutenção Mecânica CNC',
+                        prefixIcon: const Icon(Icons.build_outlined),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        isDense: true,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.check, size: 16),
+              label: const Text('Salvar Técnico'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0A369D),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () async {
+                if (formKey.currentState!.validate()) {
+                  final nome = nomeCtrl.text.trim();
+                  final telefone = telefoneCtrl.text.trim();
+                  final email = emailCtrl.text.trim().isNotEmpty ? emailCtrl.text.trim() : null;
+                  final especialidade = especialidadeCtrl.text.trim().isNotEmpty ? especialidadeCtrl.text.trim() : null;
+
+                  await TecnicosService.instance.adicionarTecnico(
+                    nome: nome,
+                    telefone: telefone,
+                    email: email,
+                    especialidade: especialidade,
+                  );
+
+                  if (context.mounted) {
+                    Navigator.pop(dialogCtx);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Técnico $nome adicionado à equipe com sucesso!'),
+                        backgroundColor: const Color(0xFF10B981),
+                      ),
+                    );
+                  }
+                }
+              },
+            ),
+          ],
         );
       },
     );
@@ -757,7 +1071,7 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
     final telefoneCtrl = TextEditingController();
     final maquinaCtrl = TextEditingController();
     final defeitoCtrl = TextEditingController();
-    String tecnicoSelecionado = _tecnicosDisponiveis.first;
+    String? tecnicoSelecionado = _tecnicosDisponiveis.isNotEmpty ? _tecnicosDisponiveis.first : null;
 
     showDialog(
       context: context,
@@ -861,6 +1175,7 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                           value: tecnicoSelecionado,
                           decoration: InputDecoration(
                             labelText: 'Técnico Responsável *',
+                            hintText: _tecnicosDisponiveis.isEmpty ? 'Cadastre um técnico primeiro' : 'Selecione',
                             filled: true,
                             fillColor: const Color(0xFFF8FAFC),
                             border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
@@ -869,6 +1184,7 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                           items: _tecnicosDisponiveis.map((t) {
                             return DropdownMenuItem(value: t, child: Text(t));
                           }).toList(),
+                          validator: (v) => v == null || v.isEmpty ? 'Selecione o técnico responsável' : null,
                           onChanged: (val) {
                             if (val != null) setDialogState(() => tecnicoSelecionado = val);
                           },
@@ -886,6 +1202,16 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                 ElevatedButton(
                   onPressed: () async {
                     if (formKey.currentState!.validate()) {
+                      if (tecnicoSelecionado == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Cadastre um técnico na equipe antes de atribuir serviço.'),
+                            backgroundColor: Colors.redAccent,
+                          ),
+                        );
+                        return;
+                      }
+
                       Navigator.pop(dialogCtx);
 
                       // 1. Cria o chamado
@@ -900,7 +1226,7 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                       // 2. Atribui o técnico instantaneamente
                       await ChamadosService.instance.atribuirTecnico(
                         chamadoId: novo.id,
-                        tecnicoNome: tecnicoSelecionado,
+                        tecnicoNome: tecnicoSelecionado!,
                       );
 
                       if (context.mounted) {
@@ -936,6 +1262,32 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
   // MODAL: ATRIBUIR TÉCNICO A UM CHAMADO EXISTENTE
   // ============================================================================
   void _abrirModalAtribuirTecnico(BuildContext context, Chamado chamado) {
+    if (_tecnicosDisponiveis.isEmpty) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Nenhum Técnico Cadastrado'),
+          content: const Text(
+            'Para atribuir um chamado, cadastre primeiro ao menos um técnico na aba "Equipe de Técnicos em Campo".',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('OK'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _abrirModalAdicionarTecnico(context);
+              },
+              child: const Text('Cadastrar Técnico Agora'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
     String tecnicoSelecionado = chamado.tecnicoNome ?? _tecnicosDisponiveis.first;
 
     showDialog(
