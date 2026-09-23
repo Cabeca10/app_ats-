@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 import '../models/chamado.dart';
 
 /// Serviço compartilhado para gerenciamento de chamados e sincronização entre Gerente e Técnico
@@ -10,13 +11,27 @@ class ChamadosService {
     _inicializarDados();
   }
 
+  /// Notifier com a lista reativa de chamados em memória
   final ValueNotifier<List<Chamado>> chamadosNotifier = ValueNotifier<List<Chamado>>([]);
 
+  /// Notifier para propagar avisos de falhas de sincronização/rede para a interface
+  final ValueNotifier<String?> syncErrorNotifier = ValueNotifier<String?>(null);
+
   void _inicializarDados() {
-    // Lista inicial de demonstração com os diferentes estados operacionais
-    chamadosNotifier.value = [
+    // Isolamento de dados mockados sob a flag kDebugMode
+    if (kDebugMode) {
+      chamadosNotifier.value = _criarChamadosDemonstracao();
+    } else {
+      chamadosNotifier.value = [];
+    }
+
+    _sincronizarComSupabase();
+  }
+
+  List<Chamado> _criarChamadosDemonstracao() {
+    return [
       Chamado(
-        id: 'c-01',
+        id: '11111111-1111-4111-8111-111111111111',
         numeroAts: '014742',
         razaoSocial: 'Metalúrgica Haas Joinville Ltda',
         cnpj: '84.123.456/0001-99',
@@ -45,7 +60,7 @@ class ChamadosService {
         orcamentoPdfUrl: 'https://storage.supabase.co/orcamentos/pdfs/014742_aprovado.pdf',
       ),
       Chamado(
-        id: 'c-02',
+        id: '22222222-2222-4222-8222-222222222222',
         numeroAts: '014743',
         razaoSocial: 'Indústria Têxtil Catarinense S.A.',
         cnpj: '12.987.654/0001-33',
@@ -66,7 +81,7 @@ class ChamadosService {
         horaViagemEstimada: 2.0,
       ),
       Chamado(
-        id: 'c-03',
+        id: '33333333-3333-4333-8333-333333333333',
         numeroAts: '014740',
         razaoSocial: 'Metalúrgica Alfa S.A.',
         cnpj: '45.678.901/0001-22',
@@ -79,7 +94,7 @@ class ChamadosService {
         defeitoRelatado: 'Vazamento de fluido refrigerante pela gaxeta do castelo.',
         tokenUrl: '1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d',
         status: ChamadoStatus.atribuido,
-        tecnicoId: 'tech-01',
+        tecnicoId: '00000000-0000-4000-8000-000000000101',
         tecnicoNome: 'Carlos Silva',
         taxaHorariaComercial: 306.00,
         taxaKm: 3.20,
@@ -89,10 +104,9 @@ class ChamadosService {
         responsavelAceiteCargo: 'Supervisor de Produção',
       ),
     ];
-
-    _sincronizarComSupabase();
   }
 
+  /// Busca os chamados atualizados no Supabase
   Future<void> _sincronizarComSupabase() async {
     try {
       final response = await Supabase.instance.client
@@ -104,8 +118,11 @@ class ChamadosService {
         final lista = response.map((item) => Chamado.fromMap(item)).toList();
         chamadosNotifier.value = lista;
       }
-    } catch (_) {
-      // Mantém os dados da lista local caso sem conexão remota
+      syncErrorNotifier.value = null;
+    } catch (e, stack) {
+      debugPrint('[ChamadosService] Aviso ao sincronizar com Supabase: $e');
+      debugPrint(stack.toString());
+      syncErrorNotifier.value = 'Falha ao sincronizar dados remotos.';
     }
   }
 
@@ -137,6 +154,7 @@ class ChamadosService {
     required String tecnicoNome,
     String? tecnicoId,
   }) async {
+    bool remotoAtualizado = false;
     try {
       // 1. Atualiza no Supabase remoto
       await Supabase.instance.client.from('chamados').update({
@@ -145,8 +163,11 @@ class ChamadosService {
         'tecnico_id': tecnicoId,
         'updated_at': DateTime.now().toIso8601String(),
       }).eq('id', chamadoId);
-    } catch (_) {
-      // Ignora se for ambiente mock
+      remotoAtualizado = true;
+      syncErrorNotifier.value = null;
+    } catch (e) {
+      debugPrint('[ChamadosService] Erro ao atribuir técnico no Supabase: $e');
+      syncErrorNotifier.value = 'Erro ao atribuir técnico no servidor: $e';
     }
 
     // 2. Atualiza no estado reativo local
@@ -157,7 +178,8 @@ class ChamadosService {
       listaAtual[index] = listaAtual[index].copyWith(
         status: ChamadoStatus.atribuido,
         tecnicoNome: tecnicoNome,
-        tecnicoId: tecnicoId ?? 'tech-${tecnicoNome.hashCode}',
+        tecnicoId: tecnicoId ?? listaAtual[index].tecnicoId,
+        pendingSync: !remotoAtualizado,
         updatedAt: DateTime.now(),
       );
       chamadosNotifier.value = listaAtual;
@@ -169,18 +191,26 @@ class ChamadosService {
 
   /// Atualiza os dados de um chamado existente no estado local e no Supabase
   Future<bool> atualizarChamado(Chamado chamadoAtualizado) async {
+    bool remotoAtualizado = false;
     try {
       await Supabase.instance.client
           .from('chamados')
-          .update(chamadoAtualizado.toMap())
+          .update(chamadoAtualizado.toDatabaseMap())
           .eq('id', chamadoAtualizado.id);
-    } catch (_) {}
+      remotoAtualizado = true;
+      syncErrorNotifier.value = null;
+    } catch (e) {
+      debugPrint('[ChamadosService] Erro ao atualizar chamado no Supabase: $e');
+      syncErrorNotifier.value = 'Falha ao sincronizar alteração: $e';
+    }
 
     final listaAtual = List<Chamado>.from(chamadosNotifier.value);
     final index = listaAtual.indexWhere((c) => c.id == chamadoAtualizado.id || c.tokenUrl == chamadoAtualizado.tokenUrl);
 
     if (index != -1) {
-      listaAtual[index] = chamadoAtualizado;
+      listaAtual[index] = chamadoAtualizado.copyWith(
+        pendingSync: !remotoAtualizado,
+      );
       chamadosNotifier.value = listaAtual;
       return true;
     }
@@ -193,6 +223,7 @@ class ChamadosService {
     required String anotacao,
   }) async {
     final agora = DateTime.now();
+    bool remotoAtualizado = false;
 
     try {
       await Supabase.instance.client.from('chamados').update({
@@ -201,7 +232,12 @@ class ChamadosService {
         'data_envio_link': agora.toIso8601String(),
         'updated_at': agora.toIso8601String(),
       }).eq('id', chamadoId);
-    } catch (_) {}
+      remotoAtualizado = true;
+      syncErrorNotifier.value = null;
+    } catch (e) {
+      debugPrint('[ChamadosService] Erro ao registrar envio do link no Supabase: $e');
+      syncErrorNotifier.value = 'Falha ao registrar envio no servidor: $e';
+    }
 
     final listaAtual = List<Chamado>.from(chamadosNotifier.value);
     final index = listaAtual.indexWhere((c) => c.id == chamadoId || c.numeroAts == chamadoId);
@@ -211,6 +247,7 @@ class ChamadosService {
         status: ChamadoStatus.orcamentoEnviado,
         anotacaoEnvio: anotacao,
         dataEnvioLink: agora,
+        pendingSync: !remotoAtualizado,
         updatedAt: agora,
       );
       chamadosNotifier.value = listaAtual;
@@ -220,7 +257,7 @@ class ChamadosService {
     return false;
   }
 
-  /// Cria uma nova proposta simplificada aberta pelo Gerente (apenas com contato/cliente inicial)
+  /// Cria uma nova proposta simplificada aberta pelo Gerente (com IDs em formato UUID v4 homologado)
   Future<Chamado> criarNovoChamado({
     required String contato,
     String telefone = '',
@@ -236,10 +273,13 @@ class ChamadosService {
     final dataFormatada = '${agora.year}${agora.month.toString().padLeft(2, '0')}${agora.day.toString().padLeft(2, '0')}';
     final sequencial = (chamadosNotifier.value.length + 1).toString().padLeft(3, '0');
     final numeroPadrao = 'ATS-$dataFormatada-$sequencial';
-    final token = 'tok-${agora.millisecondsSinceEpoch}';
+    
+    // Geração de UUID v4 válido conforme o tipo UUID das colunas no Postgres
+    final token = const Uuid().v4();
+    final novoUuid = const Uuid().v4();
 
     Chamado novo = Chamado(
-      id: 'chamado-${agora.millisecondsSinceEpoch}',
+      id: novoUuid,
       numeroAts: numeroPadrao,
       razaoSocial: (razaoSocial != null && razaoSocial.trim().isNotEmpty) ? razaoSocial.trim() : contato,
       contato: contato,
@@ -252,24 +292,32 @@ class ChamadosService {
       tokenUrl: token,
       status: ChamadoStatus.orcamentoPendenteEnvio,
       createdAt: agora,
+      pendingSync: false,
     );
 
     try {
-      final insertMap = novo.toMap();
-      // Permite que o Trigger do PostgreSQL gere o numero_ats com row-level lock anti-race condition
+      final insertMap = novo.toDatabaseMap();
+      // O Trigger do PostgreSQL gera o numero_ats oficial caso configurado
       final res = await Supabase.instance.client
           .from('chamados')
           .insert(insertMap)
           .select(Chamado.selectColumnsMinimas)
           .maybeSingle();
 
-      if (res != null && res['numero_ats'] != null) {
+      if (res != null) {
         novo = novo.copyWith(
-          id: res['id']?.toString(),
-          numeroAts: res['numero_ats'].toString(),
+          id: res['id']?.toString() ?? novo.id,
+          numeroAts: res['numero_ats']?.toString() ?? novo.numeroAts,
+          pendingSync: false,
         );
       }
-    } catch (_) {}
+      syncErrorNotifier.value = null;
+    } catch (e, stack) {
+      debugPrint('[ChamadosService] Erro ao persistir novo chamado no Supabase: $e');
+      debugPrint(stack.toString());
+      syncErrorNotifier.value = 'Chamado salvo localmente. Falha ao gravar no servidor: $e';
+      novo = novo.copyWith(pendingSync: true);
+    }
 
     final lista = List<Chamado>.from(chamadosNotifier.value);
     lista.insert(0, novo);
@@ -319,8 +367,9 @@ class ChamadosService {
       updateData['numero_serie'] = numeroSerie.trim();
     }
 
+    bool remotoSucesso = false;
     try {
-      if (chamadoId != null && chamadoId.isNotEmpty && !chamadoId.startsWith('c-')) {
+      if (chamadoId != null && chamadoId.isNotEmpty) {
         await Supabase.instance.client
             .from('chamados')
             .update(updateData)
@@ -331,8 +380,11 @@ class ChamadosService {
             .update(updateData)
             .eq('numero_ats', numeroAts.replaceAll('ATS-', '').trim());
       }
+      remotoSucesso = true;
+      syncErrorNotifier.value = null;
     } catch (e) {
-      debugPrint('Aviso ao sincronizar finalização no Supabase: $e');
+      debugPrint('[ChamadosService] Aviso ao sincronizar finalização no Supabase: $e');
+      syncErrorNotifier.value = 'Falha ao sincronizar finalização remota: $e';
     }
 
     // Atualiza estado local reativo
@@ -355,6 +407,7 @@ class ChamadosService {
         numeroSerie: numeroSerie ?? listaAtual[index].numeroSerie,
         termosAceitos: true,
         aceiteData: agora,
+        pendingSync: !remotoSucesso,
         updatedAt: agora,
       );
       chamadosNotifier.value = listaAtual;

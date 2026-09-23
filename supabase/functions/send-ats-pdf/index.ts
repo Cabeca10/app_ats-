@@ -26,6 +26,32 @@ serve(async (req: Request) => {
   }
 
   try {
+    // 0. Validação de autenticação via JWT (Regra de AppSec)
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return new Response(
+        JSON.stringify({ error: "Acesso não autorizado: Cabeçalho Authorization ausente ou inválido." }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const jwtToken = authHeader.replace("Bearer ", "").trim();
+
+    // Inicializa o cliente do Supabase com privilégios de servidor
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const adminKeyName = ["SUPABASE", "SERVICE", "ROLE", "KEY"].join("_");
+    const serverKey = Deno.env.get(adminKeyName) ?? Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+    const supabase = createClient(supabaseUrl, serverKey);
+
+    // Valida o usuário da sessão via supabase.auth.getUser()
+    const { data: authData, error: authError } = await supabase.auth.getUser(jwtToken);
+    if (authError || !authData?.user) {
+      return new Response(
+        JSON.stringify({ error: "Acesso não autorizado: Sessão inválida ou expirada." }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const payload: SendPdfPayload = await req.json();
     const chamadoId = payload.chamado_id || payload.chamadoId;
     const directPdfUrl = payload.pdf_url || payload.pdfUrl;
@@ -36,12 +62,6 @@ serve(async (req: Request) => {
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-
-    // Inicializa o cliente do Supabase com privilégios de servidor
-    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-    const adminKeyName = ["SUPABASE", "SERVICE", "ROLE", "KEY"].join("_");
-    const serverKey = Deno.env.get(adminKeyName) ?? Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-    const supabase = createClient(supabaseUrl, serverKey);
 
     // 1. Busca os dados do chamado na tabela chamados
     const { data: chamado, error: chamadoError } = await supabase

@@ -904,10 +904,14 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                       );
 
                       if (context.mounted) {
+                        final msg = novo.pendingSync
+                            ? 'O.S. Nº ${novo.numeroAts} salva localmente (offline/pendente de sincronização com o banco).'
+                            : 'O.S. Nº ${novo.numeroAts} criada e atribuída a $tecnicoSelecionado!';
+                        final cor = novo.pendingSync ? Colors.orange.shade800 : const Color(0xFF10B981);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text('O.S. Nº ${novo.numeroAts} criada e atribuída a $tecnicoSelecionado!'),
-                            backgroundColor: const Color(0xFF10B981),
+                            content: Text(msg),
+                            backgroundColor: cor,
                             behavior: SnackBarBehavior.floating,
                           ),
                         );

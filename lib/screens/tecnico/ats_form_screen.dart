@@ -16,11 +16,13 @@ import 'tecnico_dashboard.dart';
 class AtsFormScreen extends StatefulWidget {
   final Ticket? ticket;
   final Chamado? chamado;
+  final bool isEmbedded;
 
   const AtsFormScreen({
     super.key,
     this.ticket,
     this.chamado,
+    this.isEmbedded = false,
   });
 
   @override
@@ -942,57 +944,76 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
   Widget build(BuildContext context) {
     final dateFormat = DateFormat('dd/MM/yyyy');
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      appBar: AppBar(
-        title: Text(
-          'Atendimento ATS Nº $_numeroAts',
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
-        ),
-        backgroundColor: const Color(0xFF0A369D),
-        foregroundColor: Colors.white,
-        elevation: 0,
-        actions: [
-          IconButton(
-            icon: _isSyncing
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                  )
-                : const Icon(Icons.sync, size: 22),
-            tooltip: 'Sincronizar com Nuvem (Recarregar do PC)',
-            onPressed: _isSyncing ? null : () => _sincronizarDadosComSupabase(manual: true),
-          ),
-          TextButton.icon(
-            onPressed: (_isSubmitting || _isSavingDraft) ? null : () => _salvarRascunho(silencioso: false),
-            icon: _isSavingDraft
-                ? const SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                  )
-                : const Icon(Icons.cloud_upload_outlined, size: 18, color: Colors.white),
-            label: const Text(
-              'Salvar Rascunho',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
-            ),
-          ),
-          const SizedBox(width: 4),
-        ],
-      ),
-      body: SafeArea(
-        child: Form(
-          key: _formKey,
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // -------------------------------------------------------------
-                // SEÇÃO 1: HEADER (DADOS DE LEITURA DO CLIENTE / ATS)
-                // -------------------------------------------------------------
-                _buildCardHeader(),
+    final bodyWidget = SafeArea(
+      child: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (widget.isEmbedded) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.assignment_outlined, color: Color(0xFF0A369D), size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Relatório O.S. $_numeroAts',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A)),
+                          ),
+                        ],
+                      ),
+                      Row(
+                        children: [
+                          IconButton(
+                            icon: _isSyncing
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(color: Color(0xFF0A369D), strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.sync, size: 20, color: Color(0xFF0A369D)),
+                            tooltip: 'Sincronizar',
+                            onPressed: _isSyncing ? null : () => _sincronizarDadosComSupabase(manual: true),
+                          ),
+                          ElevatedButton.icon(
+                            onPressed: (_isSubmitting || _isSavingDraft) ? null : () => _salvarRascunho(silencioso: false),
+                            icon: _isSavingDraft
+                                ? const SizedBox(
+                                    width: 12,
+                                    height: 12,
+                                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.save_outlined, size: 14),
+                            label: const Text('Salvar Rascunho', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF0A369D),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              elevation: 0,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+              // -------------------------------------------------------------
+              // SEÇÃO 1: HEADER (DADOS DE LEITURA DO CLIENTE / ATS)
+              // -------------------------------------------------------------
+              _buildCardHeader(),
                 const SizedBox(height: 12),
 
                 // -------------------------------------------------------------
@@ -1089,7 +1110,55 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
             ),
           ),
         ),
+      );
+
+    if (widget.isEmbedded) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        body: bodyWidget,
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
+      appBar: AppBar(
+        title: Text(
+          'Atendimento ATS Nº $_numeroAts',
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+        ),
+        backgroundColor: const Color(0xFF0A369D),
+        foregroundColor: Colors.white,
+        elevation: 0,
+        actions: [
+          IconButton(
+            icon: _isSyncing
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                  )
+                : const Icon(Icons.sync, size: 22),
+            tooltip: 'Sincronizar com Nuvem (Recarregar do PC)',
+            onPressed: _isSyncing ? null : () => _sincronizarDadosComSupabase(manual: true),
+          ),
+          TextButton.icon(
+            onPressed: (_isSubmitting || _isSavingDraft) ? null : () => _salvarRascunho(silencioso: false),
+            icon: _isSavingDraft
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                  )
+                : const Icon(Icons.cloud_upload_outlined, size: 18, color: Colors.white),
+            label: const Text(
+              'Salvar Rascunho',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+            ),
+          ),
+          const SizedBox(width: 4),
+        ],
       ),
+      body: bodyWidget,
     );
   }
 

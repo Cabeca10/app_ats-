@@ -77,14 +77,27 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
     });
 
     try {
-      final response = await Supabase.instance.client
-          .from('chamados')
-          .select(Chamado.selectColumnsCompletas)
-          .eq('token_url', widget.token)
-          .maybeSingle();
+      Map<String, dynamic>? data;
+      try {
+        final rpcRes = await Supabase.instance.client
+            .rpc('obter_orcamento_por_token', params: {'p_token': widget.token});
+        if (rpcRes != null && rpcRes is Map) {
+          data = Map<String, dynamic>.from(rpcRes);
+        }
+      } catch (rpcErr) {
+        debugPrint('[OrcamentoClientScreen] RPC obter_orcamento falhou, tentando consulta direta: $rpcErr');
+        final response = await Supabase.instance.client
+            .from('chamados')
+            .select(Chamado.selectColumnsCompletas)
+            .eq('token_url', widget.token)
+            .maybeSingle();
+        if (response != null) {
+          data = Map<String, dynamic>.from(response);
+        }
+      }
 
-      if (response != null) {
-        _chamado = Chamado.fromMap(response);
+      if (data != null) {
+        _chamado = Chamado.fromMap(data);
         if (_chamado!.status == ChamadoStatus.aprovadoPendente ||
             _chamado!.status == ChamadoStatus.atribuido ||
             _chamado!.status == ChamadoStatus.finalizado) {

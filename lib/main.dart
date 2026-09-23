@@ -143,7 +143,9 @@ class _AuthWrapperState extends State<AuthWrapper> {
       _resolverPerfilAutomatico(_session!.user);
     }
     _initialCheckDone = true;
-    _authSubscription = Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+    _authSubscription = Supabase.instance.client.auth.onAuthStateChange.listen((
+      data,
+    ) {
       setState(() {
         _session = data.session;
       });
@@ -157,11 +159,12 @@ class _AuthWrapperState extends State<AuthWrapper> {
     String? role = user.userMetadata?['role']?.toString();
     if (role == null || role.isEmpty) {
       try {
-        final row = await Supabase.instance.client
-            .from('usuarios')
-            .select('perfil')
-            .eq('id', user.id)
-            .maybeSingle();
+        final row =
+            await Supabase.instance.client
+                .from('usuarios')
+                .select('perfil')
+                .eq('id', user.id)
+                .maybeSingle();
         if (row != null && row['perfil'] != null) {
           role = row['perfil'].toString();
         }
@@ -169,7 +172,8 @@ class _AuthWrapperState extends State<AuthWrapper> {
     }
 
     if (role != null && mounted) {
-      final novoRole = (role.toLowerCase() == 'gerente') ? 'Gerente' : 'Técnico';
+      final novoRole =
+          (role.toLowerCase() == 'gerente') ? 'Gerente' : 'Técnico';
       if (AppAuthState.selectedRole != novoRole) {
         setState(() {
           AppAuthState.selectedRole = novoRole;

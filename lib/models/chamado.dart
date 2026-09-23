@@ -281,6 +281,50 @@ class Chamado {
     };
   }
 
+  /// Converte o chamado em Map estritamente com as colunas existentes na tabela 'chamados' do Supabase
+  Map<String, dynamic> toDatabaseMap() {
+    return {
+      'id': id,
+      'numero_ats': numeroAts,
+      'razao_social': razaoSocial,
+      'contato': contato,
+      'anotacao_envio': anotacaoEnvio,
+      'data_envio_link': dataEnvioLink?.toIso8601String(),
+      'cnpj': cnpj,
+      'inscricao_estadual': inscricaoEstadual,
+      'telefone': telefone,
+      'cliente_email': emailCliente,
+      'email_cliente': emailCliente,
+      'endereco': endereco,
+      'cidade': cidade,
+      'tipo_atendimento': tipoAtendimento,
+      'fabricante': fabricante,
+      'modelo_maquina': modeloMaquina,
+      'numero_serie': numeroSerie,
+      'defeito_relatado': defeitoRelatado,
+      'servico_executado': servicoExecutado,
+      'token_url': tokenUrl,
+      'status': status,
+      'taxa_horaria_comercial': taxaHorariaComercial,
+      'taxa_horaria_extra': taxaHorariaExtra,
+      'taxa_horaria_especial': taxaHorariaEspecial,
+      'taxa_km': taxaKm,
+      'km_estimado': kmEstimado,
+      'hora_viagem_estimada': horaViagemEstimada,
+      'valor_estimado_total': valorEstimadoTotal,
+      'termos_aceitos': termosAceitos,
+      'aceite_data': aceiteData?.toIso8601String(),
+      'responsavel_aceite_nome': responsavelAceiteNome,
+      'responsavel_aceite_cargo': responsavelAceiteCargo,
+      'assinatura_url': assinaturaUrl,
+      'orcamento_pdf_url': orcamentoPdfUrl,
+      'tecnico_id': tecnicoId,
+      'tecnico_nome': tecnicoNome,
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt?.toIso8601String(),
+    };
+  }
+
   factory Chamado.fromMap(Map<String, dynamic> map) {
     return Chamado(
       id: map['id'] ?? '',

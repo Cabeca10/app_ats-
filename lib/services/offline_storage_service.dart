@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import '../models/ats_documentacao.dart';
 
 /// Serviço de armazenamento local offline-first utilizando Hive.
 /// Garante que todos os dados de atendimentos e logs técnicos
@@ -94,5 +95,20 @@ class OfflineStorageService {
       return cached.map((e) => Map<String, dynamic>.from(e as Map)).toList();
     }
     return [];
+  }
+
+  /// Salva as anotações e fotos de documentação do chamado localmente no Hive
+  Future<void> salvarDocumentacaoLocal(AtsDocumentacao doc) async {
+    await box.put('doc_${doc.chamadoId}', doc.toMap());
+    debugPrint('[OfflineStorage] Documentação do chamado ${doc.chamadoId} salva localmente.');
+  }
+
+  /// Recupera as anotações e fotos de documentação do chamado do cache local do Hive
+  AtsDocumentacao? obterDocumentacaoLocal(String chamadoId) {
+    final data = box.get('doc_$chamadoId');
+    if (data != null && data is Map) {
+      return AtsDocumentacao.fromMap(Map<String, dynamic>.from(data));
+    }
+    return null;
   }
 }

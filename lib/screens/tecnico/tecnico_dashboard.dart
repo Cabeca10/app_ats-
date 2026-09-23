@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../main.dart';
-import 'ats_form_screen.dart';
+import 'atendimento_screen.dart';
 import '../../models/chamado.dart';
 import '../../services/chamados_service.dart';
 import '../../services/offline_storage_service.dart';
@@ -615,11 +615,22 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
     );
   }
 
-  Future<void> _abrirAtsForm(Ticket ticket) async {
+  Future<void> _abrirAtendimento(Ticket ticket) async {
+    Chamado? chamado;
+    if (ticket.chamadoId != null && ticket.chamadoId!.isNotEmpty) {
+      chamado = ChamadosService.instance.obterChamadoPorId(ticket.chamadoId!);
+    }
+    if (chamado == null && ticket.numeroAts != null && ticket.numeroAts!.isNotEmpty) {
+      chamado = ChamadosService.instance.obterChamadoPorNumeroAts(ticket.numeroAts!);
+    }
+
     final res = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (context) => AtsFormScreen(ticket: ticket),
+        builder: (context) => AtendimentoScreen(
+          ticket: ticket,
+          chamado: chamado,
+        ),
       ),
     );
     if (res == true && mounted) {
@@ -695,7 +706,7 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
         child: Material(
           color: Colors.transparent,
           child: InkWell(
-            onTap: () => _abrirAtsForm(ticket),
+            onTap: () => _abrirAtendimento(ticket),
             child: IntrinsicHeight(
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -870,9 +881,9 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
                                   ],
                                   if (ticket.status != "Concluído")
                                     ElevatedButton.icon(
-                                      onPressed: () => _abrirAtsForm(ticket),
-                                      icon: const Icon(Icons.note_add_outlined, size: 16),
-                                      label: Text(ticket.status == "Pendente" ? "Iniciar Relatório" : "Continuar ATS"),
+                                      onPressed: () => _abrirAtendimento(ticket),
+                                      icon: const Icon(Icons.handyman_outlined, size: 16),
+                                      label: Text(ticket.status == "Pendente" ? "Iniciar Atendimento" : "Continuar Atendimento"),
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor: const Color(0xFF0A369D),
                                         foregroundColor: Colors.white,

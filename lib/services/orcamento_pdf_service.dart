@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
@@ -440,28 +441,49 @@ class OrcamentoPdfService {
     // 3. Atualiza o Chamado no Supabase para 'aprovado_pendente' com dados cadastrais preenchidos
     final agora = DateTime.now();
     try {
-      await client.from('chamados').update({
-        'status': ChamadoStatus.aprovadoPendente,
-        'razao_social': chamado.razaoSocial,
-        'cnpj': chamado.cnpj,
-        'inscricao_estadual': chamado.inscricaoEstadual,
-        'endereco': chamado.endereco,
-        'telefone': chamado.telefone,
-        'cidade': chamado.cidade,
-        'fabricante': chamado.fabricante,
-        'modelo_maquina': chamado.modeloMaquina,
-        'numero_serie': chamado.numeroSerie,
-        'defeito_relatado': chamado.defeitoRelatado,
-        'termos_aceitos': true,
-        'aceite_data': agora.toIso8601String(),
-        'responsavel_aceite_nome': responsavelNome,
-        'responsavel_aceite_cargo': responsavelCargo,
-        'assinatura_url': signatureUrl,
-        'orcamento_pdf_url': pdfUrl,
-        'updated_at': agora.toIso8601String(),
-      }).eq('token_url', chamado.tokenUrl);
-    } catch (_) {
-      // Continua caso em modo mock/demo
+      await client.rpc('aprovar_orcamento_por_token', params: {
+        'p_token': chamado.tokenUrl,
+        'p_razao_social': chamado.razaoSocial,
+        'p_cnpj': chamado.cnpj,
+        'p_inscricao_estadual': chamado.inscricaoEstadual,
+        'p_endereco': chamado.endereco,
+        'p_telefone': chamado.telefone,
+        'p_cidade': chamado.cidade,
+        'p_fabricante': chamado.fabricante,
+        'p_modelo_maquina': chamado.modeloMaquina,
+        'p_numero_serie': chamado.numeroSerie,
+        'p_defeito_relatado': chamado.defeitoRelatado,
+        'p_responsavel_nome': responsavelNome,
+        'p_responsavel_cargo': responsavelCargo,
+        'p_assinatura_url': signatureUrl,
+        'p_orcamento_pdf_url': pdfUrl,
+      });
+    } catch (rpcErr) {
+      debugPrint('[OrcamentoPdfService] RPC aprovar_orcamento_por_token falhou, tentando update direto: $rpcErr');
+      try {
+        await client.from('chamados').update({
+          'status': ChamadoStatus.aprovadoPendente,
+          'razao_social': chamado.razaoSocial,
+          'cnpj': chamado.cnpj,
+          'inscricao_estadual': chamado.inscricaoEstadual,
+          'endereco': chamado.endereco,
+          'telefone': chamado.telefone,
+          'cidade': chamado.cidade,
+          'fabricante': chamado.fabricante,
+          'modelo_maquina': chamado.modeloMaquina,
+          'numero_serie': chamado.numeroSerie,
+          'defeito_relatado': chamado.defeitoRelatado,
+          'termos_aceitos': true,
+          'aceite_data': agora.toIso8601String(),
+          'responsavel_aceite_nome': responsavelNome,
+          'responsavel_aceite_cargo': responsavelCargo,
+          'assinatura_url': signatureUrl,
+          'orcamento_pdf_url': pdfUrl,
+          'updated_at': agora.toIso8601String(),
+        }).eq('token_url', chamado.tokenUrl);
+      } catch (directErr) {
+        debugPrint('[OrcamentoPdfService] Erro no update direto de aprovação: $directErr');
+      }
     }
 
     // Sincroniza o estado reativo local no ChamadosService

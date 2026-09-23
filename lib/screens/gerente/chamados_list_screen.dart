@@ -1062,10 +1062,14 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
                 );
 
                 if (context.mounted) {
+                  final msg = novo.pendingSync
+                      ? 'Nova Proposta O.S. Nº ${novo.numeroAts} salva localmente (offline/pendente de sincronização com o banco).'
+                      : 'Nova Proposta O.S. Nº ${novo.numeroAts} criada com sucesso!';
+                  final cor = novo.pendingSync ? Colors.orange.shade800 : const Color(0xFF10B981);
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text('Nova Proposta O.S. Nº ${novo.numeroAts} criada com sucesso!'),
-                      backgroundColor: const Color(0xFF10B981),
+                      content: Text(msg),
+                      backgroundColor: cor,
                       behavior: SnackBarBehavior.floating,
                     ),
                   );
