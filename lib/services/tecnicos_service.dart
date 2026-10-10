@@ -68,7 +68,9 @@ class TecnicosService {
     await _salvarLocalmente();
     try {
       await Supabase.instance.client.from('usuarios').delete().eq('id', id);
-    } catch (_) {}
+    } catch (e, stackTrace) {
+      debugPrint('[TecnicosService] Erro ao remover técnico no Supabase: $e\n$stackTrace');
+    }
   }
 
   /// Limpa toda a equipe técnica da simulação

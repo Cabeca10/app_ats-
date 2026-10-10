@@ -200,8 +200,17 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         });
         return;
       }
-    } catch (e) {
-      debugPrint('[AtsForm] Erro ao carregar usuarios/tecnicos: $e');
+    } catch (e, stackTrace) {
+      debugPrint('[AtsForm] Falha ao carregar lista de técnicos da nuvem: $e\n$stackTrace');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Falha na comunicação. Utilizando lista de técnicos em cache local.'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
     }
 
     // Fallback caso offline ou usuarios vazio: inclui tecnico atribuido e equipe cadastrada
@@ -367,8 +376,17 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
           );
         }
       }
-    } catch (e) {
-      debugPrint('[AtsForm] Erro ao sincronizar da nuvem: $e');
+    } catch (e, stackTrace) {
+      debugPrint('[AtsForm] Erro ao sincronizar dados da nuvem: $e\n$stackTrace');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Falha na comunicação ao sincronizar dados com a nuvem. Verifique sua conexão com a internet.'),
+            backgroundColor: Colors.redAccent,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isSyncing = false);
     }
@@ -699,8 +717,16 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
               fileOptions: const FileOptions(contentType: 'image/png', upsert: true),
             );
         assinaturaUrl = client.storage.from('orcamentos').getPublicUrl(sigPath);
-      } catch (e) {
-        debugPrint('Aviso upload assinatura: $e');
+      } catch (e, stackTrace) {
+        debugPrint('[AtsForm] Falha no upload da assinatura no Storage: $e\n$stackTrace');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Aviso: Assinatura salva no aparelho. Falha no envio para o servidor por instabilidade de rede.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
       }
 
       // B. URL de referência do atendimento
@@ -748,8 +774,16 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
               fileOptions: const FileOptions(contentType: 'application/pdf', upsert: true),
             );
         pdfUrl = client.storage.from('orcamentos').getPublicUrl(pdfPath);
-      } catch (e) {
-        debugPrint('Aviso upload PDF: $e');
+      } catch (e, stackTrace) {
+        debugPrint('[AtsForm] Falha no upload do PDF final no Storage: $e\n$stackTrace');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Aviso: PDF gerado localmente. Upload pendente de conexão estável com a nuvem.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
       }
 
       // E. UPDATE na tabela chamados alterando status para 'finalizado'
@@ -802,8 +836,16 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
             await client.from('ats_dias_trabalho').insert(diasRows);
           }
         }
-      } catch (logErr) {
-        debugPrint('Aviso inserção log_horas_custos / ats_dias_trabalho: $logErr');
+      } catch (logErr, stackTrace) {
+        debugPrint('[AtsForm] Erro ao gravar log de horas/dias de trabalho no Supabase: $logErr\n$stackTrace');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Aviso: Horas e dias registrados no dispositivo. Sincronização em nuvem pendente de rede.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
       }
 
       // G. Marca sincronizado localmente

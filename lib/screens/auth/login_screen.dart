@@ -72,7 +72,17 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
               'email': email,
               'perfil': role,
             });
-          } catch (_) {}
+          } catch (e, stackTrace) {
+            debugPrint('[Login] Erro ao salvar perfil do usuário na tabela usuarios: $e\n$stackTrace');
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Aviso: Perfil criado, mas houve lentidão na sincronização com o servidor.'),
+                  backgroundColor: Colors.orange,
+                ),
+              );
+            }
+          }
         }
 
         if (mounted) {
@@ -105,7 +115,17 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
               if (userRow != null && userRow['perfil'] != null) {
                 role = userRow['perfil'].toString();
               }
-            } catch (_) {}
+            } catch (e, stackTrace) {
+              debugPrint('[Login] Falha ao consultar perfil na tabela usuarios: $e\n$stackTrace');
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Falha na comunicação. Não foi possível verificar o perfil no servidor.'),
+                    backgroundColor: Colors.orange,
+                  ),
+                );
+              }
+            }
           }
           if (role != null) {
             AppAuthState.selectedRole = (role.toLowerCase() == 'gerente') ? 'Gerente' : 'Técnico';

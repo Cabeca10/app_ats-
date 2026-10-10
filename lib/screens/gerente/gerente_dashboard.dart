@@ -1451,7 +1451,17 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                 .map((d) => DiaTrabalho.fromMap(Map<String, dynamic>.from(d as Map)))
                 .toList();
           }
-        } catch (_) {}
+        } catch (e, stackTrace) {
+          debugPrint('[GerenteDashboard] Erro ao carregar dias de trabalho da nuvem: $e\n$stackTrace');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Falha na comunicação ao sincronizar dias de trabalho. Utilizando dados locais.'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+        }
       }
 
       // 2. Prepara modelo de horas/custos
@@ -1560,7 +1570,17 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
         }
         final bytes = await client.storage.from('orcamentos').download(path);
         if (bytes.isNotEmpty) return bytes;
-      } catch (_) {}
+      } catch (e, stackTrace) {
+        debugPrint('[GerenteDashboard] Erro ao baixar assinatura do Storage: $e\n$stackTrace');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Falha na comunicação ao obter a assinatura digital remota.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      }
     }
     // 1x1 Transparent PNG fallback
     return Uint8List.fromList([

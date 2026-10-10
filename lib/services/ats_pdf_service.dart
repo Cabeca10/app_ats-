@@ -1,4 +1,4 @@
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
@@ -31,7 +31,9 @@ class AtsPdfService {
     try {
       final logoBytes = await rootBundle.load('assets/images/logo_pmach.png');
       logoImage = pw.MemoryImage(logoBytes.buffer.asUint8List());
-    } catch (_) {}
+    } catch (e, stackTrace) {
+      debugPrint('[AtsPdfService] Logotipo não carregado de assets: $e\n$stackTrace');
+    }
 
     final signatureImage = pw.MemoryImage(assinaturaBytes);
     final dateFormat = DateFormat('dd/MM/yyyy');

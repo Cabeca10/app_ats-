@@ -121,7 +121,16 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
       _telefoneController.text = '';
       _nomeController.text = '';
       _cargoController.text = '';
-    } catch (_) {
+    } catch (e, stackTrace) {
+      debugPrint('[OrcamentoClient] Erro ao carregar chamado/orçamento via token: $e\n$stackTrace');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Falha na comunicação. Não foi possível carregar os dados atualizados do orçamento.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
       // Fallback gracioso caso haja erro de conexão
       _chamado = _criarChamadoMock(widget.token);
       _fabricanteController.text = '';

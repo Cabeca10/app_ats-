@@ -702,7 +702,17 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
                 .map((d) => DiaTrabalho.fromMap(Map<String, dynamic>.from(d as Map)))
                 .toList();
           }
-        } catch (_) {}
+        } catch (e, stackTrace) {
+          debugPrint('[ChamadosList] Falha ao carregar dias de trabalho da nuvem: $e\n$stackTrace');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Falha na comunicação. Não foi possível sincronizar os dias de trabalho remotos.'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+        }
       }
 
       // 2. Prepara modelo de horas/custos
@@ -811,7 +821,17 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
         }
         final bytes = await client.storage.from('orcamentos').download(path);
         if (bytes.isNotEmpty) return bytes;
-      } catch (_) {}
+      } catch (e, stackTrace) {
+        debugPrint('[ChamadosList] Erro ao baixar assinatura do Storage: $e\n$stackTrace');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Falha na comunicação ao carregar assinatura remota do cliente.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      }
     }
     // 1x1 Transparent PNG fallback
     return Uint8List.fromList([
@@ -1025,8 +1045,15 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
       if (!launched && context.mounted) {
         await launchUrl(whatsappUrl, mode: LaunchMode.platformDefault);
       }
-    } catch (_) {
+    } catch (e, stackTrace) {
+      debugPrint('[ChamadosList] Erro ao abrir WhatsApp: $e\n$stackTrace');
       if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Não foi possível abrir o WhatsApp. O link foi copiado para sua área de transferência.'),
+            backgroundColor: Color(0xFF0A369D),
+          ),
+        );
         await _copiarLinkAprovacao(context, chamado);
       }
     }

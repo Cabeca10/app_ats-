@@ -140,9 +140,18 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
         }
         return;
       }
-    } catch (e) {
-      debugPrint('[TecnicoDashboard] Erro na rede, recorrendo ao cache Hive: $e');
+    } catch (e, stackTrace) {
+      debugPrint('[TecnicoDashboard] Erro na rede ao carregar chamados, recorrendo ao cache Hive: $e\n$stackTrace');
       _carregarDoCacheLocal();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Falha na comunicação com o servidor. Exibindo dados locais offline.'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
     }
   }
 
