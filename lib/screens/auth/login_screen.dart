@@ -4,8 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../main.dart';
 
 class LoginScreen extends StatefulWidget {
-  final VoidCallback? onBypass;
-  const LoginScreen({super.key, this.onBypass});
+  const LoginScreen({super.key});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -545,30 +544,6 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                                           fontWeight: FontWeight.bold,
                                         ),
                                       ),
-                              ),
-                              const SizedBox(height: 12),
-                              OutlinedButton(
-                                onPressed: () {
-                                  AppAuthState.bypassAuth = true;
-                                  if (widget.onBypass != null) {
-                                    widget.onBypass!();
-                                  }
-                                },
-                                style: OutlinedButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(vertical: 16),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  side: const BorderSide(color: Color(0xFF4A90E2), width: 1),
-                                  foregroundColor: const Color(0xFF4A90E2),
-                                ),
-                                child: const Text(
-                                  'ir teste',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
                               ),
                             ],
                           ),

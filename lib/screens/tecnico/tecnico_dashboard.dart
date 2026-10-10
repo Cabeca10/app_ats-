@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../main.dart';
 import 'atendimento_screen.dart';
 import '../../models/chamado.dart';
 import '../../services/chamados_service.dart';
@@ -1121,7 +1120,7 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
   // PAGE 3: PERFIL (PROFILE & SETTINGS)
   Widget _buildPerfilPage() {
     final user = Supabase.instance.client.auth.currentUser;
-    final email = user?.email ?? (AppAuthState.bypassAuth ? "Modo Simulação" : "Não conectado");
+    final email = user?.email ?? "Não conectado";
     final nome = user?.userMetadata?['nome']?.toString() ??
         (user?.email != null ? user!.email!.split('@').first : 'Técnico Operacional');
 
@@ -1332,7 +1331,6 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
           TextButton(
             onPressed: () async {
               Navigator.pop(context);
-              AppAuthState.bypassAuth = false;
               if (widget.onLogout != null) {
                 widget.onLogout!();
               }

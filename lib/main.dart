@@ -25,7 +25,6 @@ const String kSupabaseAnonKey = String.fromEnvironment(
 
 class AppAuthState {
   static String selectedRole = 'Técnico'; // 'Técnico' or 'Gerente'
-  static bool bypassAuth = false;
 }
 
 Future<void> main() async {
@@ -205,26 +204,22 @@ class _AuthWrapperState extends State<AuthWrapper> {
       );
     }
 
-    if (_session != null || AppAuthState.bypassAuth) {
+    if (_session != null) {
       if (AppAuthState.selectedRole == 'Gerente') {
         return GerenteDashboard(
           onLogout: () {
-            setState(() {
-              AppAuthState.bypassAuth = false;
-            });
+            setState(() {});
           },
         );
       } else {
         return TecnicoDashboard(
           onLogout: () {
-            setState(() {
-              AppAuthState.bypassAuth = false;
-            });
+            setState(() {});
           },
         );
       }
     } else {
-      return LoginScreen(onBypass: () => setState(() {}));
+      return const LoginScreen();
     }
   }
 }
