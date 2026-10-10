@@ -1,4 +1,4 @@
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -201,7 +201,9 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         return;
       }
     } catch (e, stackTrace) {
-      debugPrint('[AtsForm] Falha ao carregar lista de técnicos da nuvem: $e\n$stackTrace');
+      if (kDebugMode) {
+        debugPrint('[AtsForm] Falha ao carregar lista de técnicos da nuvem: $e\n$stackTrace');
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -377,7 +379,9 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         }
       }
     } catch (e, stackTrace) {
-      debugPrint('[AtsForm] Erro ao sincronizar dados da nuvem: $e\n$stackTrace');
+      if (kDebugMode) {
+        debugPrint('[AtsForm] Erro ao sincronizar dados da nuvem: $e\n$stackTrace');
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -596,13 +600,34 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       refeicao: refeicao,
     );
 
-    // Extrai imagem PNG da assinatura
+    // Extrai imagem PNG da assinatura estritamente a partir do buffer codificado em PNG
     final Uint8List? assinaturaBytes = await _signatureController.toPngBytes();
     if (assinaturaBytes == null || assinaturaBytes.isEmpty) {
       setState(() => _isSubmitting = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Erro ao processar assinatura.'), backgroundColor: Colors.redAccent),
+        );
+      }
+      return;
+    }
+
+    // Validação estrita de segurança: validação de cabeçalho PNG (magic number) e bloqueio de SVG
+    final bool isValidoPng = assinaturaBytes.length >= 8 &&
+        assinaturaBytes[0] == 0x89 &&
+        assinaturaBytes[1] == 0x50 &&
+        assinaturaBytes[2] == 0x4E &&
+        assinaturaBytes[3] == 0x47 &&
+        assinaturaBytes[4] == 0x0D &&
+        assinaturaBytes[5] == 0x0A &&
+        assinaturaBytes[6] == 0x1A &&
+        assinaturaBytes[7] == 0x0A;
+
+    if (!isValidoPng) {
+      setState(() => _isSubmitting = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Formato de assinatura inválido. Apenas buffer PNG é aceito.'), backgroundColor: Colors.redAccent),
         );
       }
       return;
@@ -707,9 +732,12 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       final client = Supabase.instance.client;
       final timestamp = DateTime.now().millisecondsSinceEpoch;
 
-      // A. Upload da assinatura
+      // A. Upload da assinatura (apenas buffer PNG codificado, bloqueando .svg)
       String? assinaturaUrl;
       final sigPath = 'assinaturas/ats_${_numeroAts}_$timestamp.png';
+      if (sigPath.toLowerCase().endsWith('.svg')) {
+        throw Exception('Upload de arquivos SVG é bloqueado por diretrizes de segurança.');
+      }
       try {
         await client.storage.from('orcamentos').uploadBinary(
               sigPath,
@@ -718,7 +746,9 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
             );
         assinaturaUrl = client.storage.from('orcamentos').getPublicUrl(sigPath);
       } catch (e, stackTrace) {
-        debugPrint('[AtsForm] Falha no upload da assinatura no Storage: $e\n$stackTrace');
+        if (kDebugMode) {
+          debugPrint('[AtsForm] Falha no upload da assinatura no Storage: $e\n$stackTrace');
+        }
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -775,7 +805,9 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
             );
         pdfUrl = client.storage.from('orcamentos').getPublicUrl(pdfPath);
       } catch (e, stackTrace) {
-        debugPrint('[AtsForm] Falha no upload do PDF final no Storage: $e\n$stackTrace');
+        if (kDebugMode) {
+          debugPrint('[AtsForm] Falha no upload do PDF final no Storage: $e\n$stackTrace');
+        }
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -837,7 +869,9 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
           }
         }
       } catch (logErr, stackTrace) {
-        debugPrint('[AtsForm] Erro ao gravar log de horas/dias de trabalho no Supabase: $logErr\n$stackTrace');
+        if (kDebugMode) {
+          debugPrint('[AtsForm] Erro ao gravar log de horas/dias de trabalho no Supabase: $logErr\n$stackTrace');
+        }
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(

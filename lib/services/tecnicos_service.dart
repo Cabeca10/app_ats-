@@ -69,7 +69,9 @@ class TecnicosService {
     try {
       await Supabase.instance.client.from('usuarios').delete().eq('id', id);
     } catch (e, stackTrace) {
-      debugPrint('[TecnicosService] Erro ao remover técnico no Supabase: $e\n$stackTrace');
+      if (kDebugMode) {
+        debugPrint('[TecnicosService] Erro ao remover técnico no Supabase: $e\n$stackTrace');
+      }
     }
   }
 

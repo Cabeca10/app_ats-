@@ -73,6 +73,12 @@ class AtsDocumentacaoService {
           final file = File(path);
           if (await file.exists()) {
             final fileName = path.split(Platform.pathSeparator).last;
+            if (fileName.toLowerCase().endsWith('.svg')) {
+              if (kDebugMode) {
+                debugPrint('[AtsDocumentacaoService] Upload de SVG bloqueado por segurança: $fileName');
+              }
+              continue;
+            }
             final remotePath = 'documentacoes/${chamadoId}_$fileName';
 
             try {
@@ -87,7 +93,9 @@ class AtsDocumentacaoService {
                 urlsFinais.add(publicUrl);
               }
             } catch (upErr) {
-              debugPrint('[AtsDocumentacaoService] Erro ao subir foto $fileName: $upErr');
+              if (kDebugMode) {
+                debugPrint('[AtsDocumentacaoService] Erro ao subir foto $fileName: $upErr');
+              }
             }
           }
         }
@@ -106,7 +114,9 @@ class AtsDocumentacaoService {
 
       remotoSucesso = true;
     } catch (e) {
-      debugPrint('[AtsDocumentacaoService] Erro ao sincronizar documentação com Supabase: $e');
+      if (kDebugMode) {
+        debugPrint('[AtsDocumentacaoService] Erro ao sincronizar documentação com Supabase: $e');
+      }
     }
 
     // 3. Atualiza estado final com status de sincronização

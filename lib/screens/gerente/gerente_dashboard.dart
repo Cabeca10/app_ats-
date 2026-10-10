@@ -1,4 +1,4 @@
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -1452,7 +1452,9 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                 .toList();
           }
         } catch (e, stackTrace) {
-          debugPrint('[GerenteDashboard] Erro ao carregar dias de trabalho da nuvem: $e\n$stackTrace');
+          if (kDebugMode) {
+            debugPrint('[GerenteDashboard] Erro ao carregar dias de trabalho da nuvem: $e\n$stackTrace');
+          }
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
@@ -1571,7 +1573,9 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
         final bytes = await client.storage.from('orcamentos').download(path);
         if (bytes.isNotEmpty) return bytes;
       } catch (e, stackTrace) {
-        debugPrint('[GerenteDashboard] Erro ao baixar assinatura do Storage: $e\n$stackTrace');
+        if (kDebugMode) {
+          debugPrint('[GerenteDashboard] Erro ao baixar assinatura do Storage: $e\n$stackTrace');
+        }
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(

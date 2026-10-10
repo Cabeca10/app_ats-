@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -703,7 +704,9 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
                 .toList();
           }
         } catch (e, stackTrace) {
-          debugPrint('[ChamadosList] Falha ao carregar dias de trabalho da nuvem: $e\n$stackTrace');
+          if (kDebugMode) {
+            debugPrint('[ChamadosList] Falha ao carregar dias de trabalho da nuvem: $e\n$stackTrace');
+          }
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
@@ -822,7 +825,9 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
         final bytes = await client.storage.from('orcamentos').download(path);
         if (bytes.isNotEmpty) return bytes;
       } catch (e, stackTrace) {
-        debugPrint('[ChamadosList] Erro ao baixar assinatura do Storage: $e\n$stackTrace');
+        if (kDebugMode) {
+          debugPrint('[ChamadosList] Erro ao baixar assinatura do Storage: $e\n$stackTrace');
+        }
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -1046,7 +1051,9 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
         await launchUrl(whatsappUrl, mode: LaunchMode.platformDefault);
       }
     } catch (e, stackTrace) {
-      debugPrint('[ChamadosList] Erro ao abrir WhatsApp: $e\n$stackTrace');
+      if (kDebugMode) {
+        debugPrint('[ChamadosList] Erro ao abrir WhatsApp: $e\n$stackTrace');
+      }
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

@@ -32,7 +32,9 @@ class AtsPdfService {
       final logoBytes = await rootBundle.load('assets/images/logo_pmach.png');
       logoImage = pw.MemoryImage(logoBytes.buffer.asUint8List());
     } catch (e, stackTrace) {
-      debugPrint('[AtsPdfService] Logotipo não carregado de assets: $e\n$stackTrace');
+      if (kDebugMode) {
+        debugPrint('[AtsPdfService] Logotipo não carregado de assets: $e\n$stackTrace');
+      }
     }
 
     final signatureImage = pw.MemoryImage(assinaturaBytes);

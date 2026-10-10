@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../main.dart';
@@ -73,7 +74,9 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
               'perfil': role,
             });
           } catch (e, stackTrace) {
-            debugPrint('[Login] Erro ao salvar perfil do usuário na tabela usuarios: $e\n$stackTrace');
+            if (kDebugMode) {
+              debugPrint('[Login] Erro ao salvar perfil do usuário na tabela usuarios: $e\n$stackTrace');
+            }
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
@@ -116,7 +119,9 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                 role = userRow['perfil'].toString();
               }
             } catch (e, stackTrace) {
-              debugPrint('[Login] Falha ao consultar perfil na tabela usuarios: $e\n$stackTrace');
+              if (kDebugMode) {
+                debugPrint('[Login] Falha ao consultar perfil na tabela usuarios: $e\n$stackTrace');
+              }
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(

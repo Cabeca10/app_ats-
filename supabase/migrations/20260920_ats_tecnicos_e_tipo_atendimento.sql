@@ -150,8 +150,9 @@ USING (
 );
 
 
--- 5. VIEW PARA RELATÓRIO MENSAL DE FECHAMENTO DE HORAS POR TÉCNICO
-CREATE OR REPLACE VIEW public.v_relatorio_horas_tecnicos AS
+-- 5. VIEW PARA RELATÓRIO MENSAL DE FECHAMENTO DE HORAS POR TÉCNICO (COM SECURITY INVOKER)
+CREATE OR REPLACE VIEW public.v_relatorio_horas_tecnicos 
+WITH (security_invoker = true) AS
 SELECT 
     t_id AS tecnico_id,
     COALESCE(u.nome, 'Técnico Não Identificado') AS tecnico_nome,

@@ -56,8 +56,10 @@ class ChamadosService {
       }
       syncErrorNotifier.value = null;
     } catch (e, stack) {
-      debugPrint('[ChamadosService] Aviso ao sincronizar com Supabase: $e');
-      debugPrint(stack.toString());
+      if (kDebugMode) {
+        debugPrint('[ChamadosService] Aviso ao sincronizar com Supabase: $e');
+        debugPrint(stack.toString());
+      }
       syncErrorNotifier.value = 'Falha ao sincronizar dados remotos.';
     }
   }
@@ -249,8 +251,10 @@ class ChamadosService {
       }
       syncErrorNotifier.value = null;
     } catch (e, stack) {
-      debugPrint('[ChamadosService] Erro ao persistir novo chamado no Supabase: $e');
-      debugPrint(stack.toString());
+      if (kDebugMode) {
+        debugPrint('[ChamadosService] Erro ao persistir novo chamado no Supabase: $e');
+        debugPrint(stack.toString());
+      }
       syncErrorNotifier.value = 'Chamado salvo localmente. Falha ao gravar no servidor: $e';
       novo = novo.copyWith(pendingSync: true);
     }

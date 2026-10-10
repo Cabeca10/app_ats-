@@ -217,3 +217,12 @@ WITH CHECK (
         LOWER(storage.extension(name)) IN ('png', 'jpg', 'jpeg', 'pdf')
     )
 );
+
+-- 6. REFORÇO DE APPSEC: GARANTIR SECURITY INVOKER NA VIEW DE RELATÓRIO
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_views WHERE viewname = 'v_relatorio_horas_tecnicos' AND schemaname = 'public') THEN
+        ALTER VIEW public.v_relatorio_horas_tecnicos SET (security_invoker = true);
+    END IF;
+END $$;
+

@@ -416,6 +416,20 @@ class OrcamentoPdfService {
     String? signatureUrl;
     String? pdfUrl;
 
+    // Validação estrita de segurança: validação de cabeçalho PNG e rejeição de SVG
+    final bool isPng = signatureBytes.length >= 8 &&
+        signatureBytes[0] == 0x89 &&
+        signatureBytes[1] == 0x50 &&
+        signatureBytes[2] == 0x4E &&
+        signatureBytes[3] == 0x47 &&
+        signatureBytes[4] == 0x0D &&
+        signatureBytes[5] == 0x0A &&
+        signatureBytes[6] == 0x1A &&
+        signatureBytes[7] == 0x0A;
+    if (!isPng || sigPath.toLowerCase().endsWith('.svg') || pdfPath.toLowerCase().endsWith('.svg')) {
+      throw Exception('Upload rejeitado: Assinatura deve ser PNG válido e arquivos SVG são proibidos.');
+    }
+
     try {
       // 1. Upload Assinatura
       await client.storage.from('orcamentos').uploadBinary(
@@ -459,7 +473,9 @@ class OrcamentoPdfService {
         'p_orcamento_pdf_url': pdfUrl,
       });
     } catch (rpcErr) {
-      debugPrint('[OrcamentoPdfService] RPC aprovar_orcamento_por_token falhou, tentando update direto: $rpcErr');
+      if (kDebugMode) {
+        debugPrint('[OrcamentoPdfService] RPC aprovar_orcamento_por_token falhou, tentando update direto: $rpcErr');
+      }
       try {
         await client.from('chamados').update({
           'status': ChamadoStatus.aprovadoPendente,
@@ -482,7 +498,9 @@ class OrcamentoPdfService {
           'updated_at': agora.toIso8601String(),
         }).eq('token_url', chamado.tokenUrl);
       } catch (directErr) {
-        debugPrint('[OrcamentoPdfService] Erro no update direto de aprovação: $directErr');
+        if (kDebugMode) {
+          debugPrint('[OrcamentoPdfService] Erro no update direto de aprovação: $directErr');
+        }
       }
     }
 

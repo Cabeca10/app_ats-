@@ -141,7 +141,9 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
         return;
       }
     } catch (e, stackTrace) {
-      debugPrint('[TecnicoDashboard] Erro na rede ao carregar chamados, recorrendo ao cache Hive: $e\n$stackTrace');
+      if (kDebugMode) {
+        debugPrint('[TecnicoDashboard] Erro na rede ao carregar chamados, recorrendo ao cache Hive: $e\n$stackTrace');
+      }
       _carregarDoCacheLocal();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

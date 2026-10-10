@@ -1,4 +1,4 @@
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
@@ -122,7 +122,9 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
       _nomeController.text = '';
       _cargoController.text = '';
     } catch (e, stackTrace) {
-      debugPrint('[OrcamentoClient] Erro ao carregar chamado/orçamento via token: $e\n$stackTrace');
+      if (kDebugMode) {
+        debugPrint('[OrcamentoClient] Erro ao carregar chamado/orçamento via token: $e\n$stackTrace');
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
