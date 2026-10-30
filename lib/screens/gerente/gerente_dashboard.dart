@@ -1,7 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../models/chamado.dart';
 import '../../models/dia_trabalho.dart';
 import '../../models/log_horas_custos.dart';
@@ -9,6 +11,7 @@ import '../../models/tecnico.dart';
 import '../../services/ats_pdf_service.dart';
 import '../../services/chamados_service.dart';
 import '../../services/tecnicos_service.dart';
+import 'chamados_list_screen.dart';
 
 const Color _emerald = Color(0xFF10B981);
 
@@ -22,6 +25,7 @@ class GerenteDashboard extends StatefulWidget {
 
 class _GerenteDashboardState extends State<GerenteDashboard> {
   int _selectedMenuIndex = 1; // Tabela de chamados selecionada por padrão para visão de gestão
+  bool _mostrarModoCards = false; // Alterna entre visão em Tabela e visão em Cards
   String _filtroStatus = 'todos';
   String _buscaTexto = '';
   String? _enviandoEmailChamadoId;
@@ -221,11 +225,11 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                             ),
                             const SizedBox(width: 12),
                           ],
-                          // Botão Principal de Ação: Criar e Atribuir Serviço
+                          // Botão Principal de Ação: Nova Proposta Comercial
                           ElevatedButton.icon(
                             onPressed: () => _abrirModalCriarEAtribuir(context),
-                            icon: const Icon(Icons.add_task, size: 18),
-                            label: const Text('+ Criar e Atribuir Serviço'),
+                            icon: const Icon(Icons.request_quote_outlined, size: 18),
+                            label: const Text('+ Nova Proposta Comercial'),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFF0A369D),
                               foregroundColor: Colors.white,
@@ -299,11 +303,15 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
       case 0:
         return _buildVisaoGeralPage();
       case 1:
-        return _buildTabelaChamadosReativa();
+        return _mostrarModoCards
+            ? ChamadosListScreen(onAlternarParaTabela: () => setState(() => _mostrarModoCards = false))
+            : _buildTabelaChamadosReativa();
       case 2:
         return _buildEquipeTecnicaPage();
       default:
-        return _buildTabelaChamadosReativa();
+        return _mostrarModoCards
+            ? ChamadosListScreen(onAlternarParaTabela: () => setState(() => _mostrarModoCards = false))
+            : _buildTabelaChamadosReativa();
     }
   }
 
@@ -352,7 +360,7 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Barra de Filtros e Busca
+              // Barra de Filtros e Busca + Botão Alternar para Cards
               Padding(
                 padding: const EdgeInsets.all(16),
                 child: Row(
@@ -396,6 +404,18 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                             'finalizado',
                           ),
                         ],
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    OutlinedButton.icon(
+                      onPressed: () => setState(() => _mostrarModoCards = true),
+                      icon: const Icon(Icons.grid_view_rounded, size: 16),
+                      label: const Text('Visão em Cards'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF0A369D),
+                        side: const BorderSide(color: Color(0xFF93C5FD)),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                       ),
                     ),
                   ],
@@ -481,16 +501,64 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                                     Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        // Botão para atribuir / alterar técnico
-                                        OutlinedButton.icon(
-                                          onPressed: () => _abrirModalAtribuirTecnico(context, c),
-                                          icon: const Icon(Icons.engineering, size: 14),
-                                          label: Text(c.tecnicoNome == null ? 'Atribuir' : 'Alterar'),
-                                          style: OutlinedButton.styleFrom(
-                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                            textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                        // Botão para atribuir técnico (visível apenas quando o status for aprovado_pendente)
+                                        if (c.status == ChamadoStatus.aprovadoPendente) ...[
+                                          ElevatedButton.icon(
+                                            onPressed: () => _abrirModalAtribuirTecnico(context, c),
+                                            icon: const Icon(Icons.person_add_alt_1, size: 14),
+                                            label: const Text('Atribuir Técnico'),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: const Color(0xFF10B981),
+                                              foregroundColor: Colors.white,
+                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                              textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                            ),
                                           ),
-                                        ),
+                                          const SizedBox(width: 8),
+                                        ],
+                                        // Botão para alterar técnico já atribuído
+                                        if (c.status == ChamadoStatus.atribuido) ...[
+                                          OutlinedButton.icon(
+                                            onPressed: () => _abrirModalAtribuirTecnico(context, c),
+                                            icon: const Icon(Icons.engineering, size: 14),
+                                            label: const Text('Alterar Técnico'),
+                                            style: OutlinedButton.styleFrom(
+                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                              textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                        ],
+                                        // Botões de proposta comercial (Copiar Link de Aprovação e Enviar WhatsApp)
+                                        if (c.status == ChamadoStatus.orcamentoPendenteEnvio ||
+                                            c.status == ChamadoStatus.orcamentoEnviado ||
+                                            c.status == ChamadoStatus.novo) ...[
+                                          OutlinedButton.icon(
+                                            onPressed: () => _copiarLinkAprovacao(context, c),
+                                            icon: const Icon(Icons.link, size: 14),
+                                            label: const Text('Copiar Link de Aprovação'),
+                                            style: OutlinedButton.styleFrom(
+                                              foregroundColor: const Color(0xFF0A369D),
+                                              side: const BorderSide(color: Color(0xFF93C5FD)),
+                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                              textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          ElevatedButton.icon(
+                                            onPressed: () => _compartilharWhatsApp(context, c),
+                                            icon: const Icon(Icons.chat, size: 14),
+                                            label: const Text('Enviar WhatsApp'),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: const Color(0xFF25D366),
+                                              foregroundColor: Colors.white,
+                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                              textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                              elevation: 0,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                        ],
                                         if (c.status == ChamadoStatus.finalizado) ...[
                                           const SizedBox(width: 8),
                                           ElevatedButton.icon(
@@ -558,6 +626,85 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
         ),
       ),
     );
+  }
+
+  String _gerarUrlPublica(Chamado chamado) {
+    final base = Uri.base.hasAuthority && Uri.base.authority.isNotEmpty
+        ? '${Uri.base.scheme}://${Uri.base.authority}'
+        : 'https://app.pmach.com';
+    return '$base/#/orcamento?token=${chamado.tokenUrl}';
+  }
+
+  Future<void> _copiarLinkAprovacao(BuildContext context, Chamado chamado) async {
+    final url = _gerarUrlPublica(chamado);
+    await Clipboard.setData(ClipboardData(text: url));
+
+    final carimbo = 'Link copiado em ${DateFormat('dd/MM/yyyy às HH:mm').format(DateTime.now())}';
+    await ChamadosService.instance.registrarEnvioLink(
+      chamadoId: chamado.id,
+      anotacao: carimbo,
+    );
+
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Link de aprovação copiado! Status alterado para Orçamento Enviado.\n$url'),
+          backgroundColor: const Color(0xFF0A369D),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
+          action: SnackBarAction(
+            label: 'OK',
+            textColor: Colors.white,
+            onPressed: () {},
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _compartilharWhatsApp(BuildContext context, Chamado chamado) async {
+    final url = _gerarUrlPublica(chamado);
+    final destinatario = chamado.contato != null && chamado.contato!.isNotEmpty
+        ? chamado.contato
+        : chamado.razaoSocial;
+    final mensagem = 'Olá $destinatario! Segue o link para conferência e aprovação digital do Orçamento / O.S. Nº ${chamado.numeroAts} da ${chamado.razaoSocial}:\n$url\nBasta acessar para assinar diretamente pelo celular ou computador.';
+
+    String phoneParam = '';
+    if (chamado.telefone != null && chamado.telefone!.trim().isNotEmpty) {
+      final apenasDigitos = chamado.telefone!.replaceAll(RegExp(r'\D'), '');
+      if (apenasDigitos.length >= 10) {
+        final ddi = apenasDigitos.startsWith('55') ? apenasDigitos : '55$apenasDigitos';
+        phoneParam = 'phone=$ddi&';
+      }
+    }
+
+    final carimbo = 'Enviado via WhatsApp em ${DateFormat('dd/MM/yyyy às HH:mm').format(DateTime.now())}';
+    await ChamadosService.instance.registrarEnvioLink(
+      chamadoId: chamado.id,
+      anotacao: carimbo,
+    );
+
+    final whatsappUrl = Uri.parse('https://api.whatsapp.com/send?${phoneParam}text=${Uri.encodeComponent(mensagem)}');
+
+    try {
+      final launched = await launchUrl(whatsappUrl, mode: LaunchMode.externalApplication);
+      if (!launched && context.mounted) {
+        await launchUrl(whatsappUrl, mode: LaunchMode.platformDefault);
+      }
+    } catch (e, stackTrace) {
+      if (kDebugMode) {
+        debugPrint('[GerenteDashboard] Erro ao abrir WhatsApp: $e\n$stackTrace');
+      }
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Não foi possível abrir o WhatsApp. O link foi copiado para sua área de transferência.'),
+            backgroundColor: Color(0xFF0A369D),
+          ),
+        );
+        await _copiarLinkAprovacao(context, chamado);
+      }
+    }
   }
 
   Widget _buildStatusBadge(String status) {
@@ -1115,7 +1262,7 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
   }
 
   // ============================================================================
-  // MODAL: CRIAR E ATRIBUIR NOVO SERVIÇO AO TÉCNICO
+  // MODAL: NOVA PROPOSTA COMERCIAL
   // ============================================================================
   void _abrirModalCriarEAtribuir(BuildContext context) {
     final formKey = GlobalKey<FormState>();
@@ -1124,7 +1271,6 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
     final telefoneCtrl = TextEditingController();
     final maquinaCtrl = TextEditingController();
     final defeitoCtrl = TextEditingController();
-    String? tecnicoSelecionado = _tecnicosDisponiveis.isNotEmpty ? _tecnicosDisponiveis.first : null;
 
     showDialog(
       context: context,
@@ -1135,9 +1281,9 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               title: const Row(
                 children: [
-                  Icon(Icons.add_task, color: Color(0xFF0A369D)),
+                  Icon(Icons.request_quote_outlined, color: Color(0xFF0A369D)),
                   SizedBox(width: 8),
-                  Text('Criar e Atribuir Novo Serviço', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  Text('Nova Proposta Comercial', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 ],
               ),
               content: SizedBox(
@@ -1221,27 +1367,6 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                             contentPadding: const EdgeInsets.all(12),
                           ),
                         ),
-                        const SizedBox(height: 14),
-
-                        // Seleção de Técnico Responsável
-                        DropdownButtonFormField<String>(
-                          value: tecnicoSelecionado,
-                          decoration: InputDecoration(
-                            labelText: 'Técnico Responsável *',
-                            hintText: _tecnicosDisponiveis.isEmpty ? 'Cadastre um técnico primeiro' : 'Selecione',
-                            filled: true,
-                            fillColor: const Color(0xFFF8FAFC),
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                          ),
-                          items: _tecnicosDisponiveis.map((t) {
-                            return DropdownMenuItem(value: t, child: Text(t));
-                          }).toList(),
-                          validator: (v) => v == null || v.isEmpty ? 'Selecione o técnico responsável' : null,
-                          onChanged: (val) {
-                            if (val != null) setDialogState(() => tecnicoSelecionado = val);
-                          },
-                        ),
                       ],
                     ),
                   ),
@@ -1255,19 +1380,9 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                 ElevatedButton(
                   onPressed: () async {
                     if (formKey.currentState!.validate()) {
-                      if (tecnicoSelecionado == null) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Cadastre um técnico na equipe antes de atribuir serviço.'),
-                            backgroundColor: Colors.redAccent,
-                          ),
-                        );
-                        return;
-                      }
-
                       Navigator.pop(dialogCtx);
 
-                      // 1. Cria o chamado
+                      // 1. Cria a proposta com status orcamento_pendente_envio e id_tecnico = null
                       final novo = await ChamadosService.instance.criarNovoChamado(
                         contato: clienteCtrl.text.trim(),
                         emailCliente: emailCtrl.text.trim().isNotEmpty ? emailCtrl.text.trim() : null,
@@ -1276,16 +1391,10 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                         defeitoRelatado: defeitoCtrl.text.trim(),
                       );
 
-                      // 2. Atribui o técnico instantaneamente
-                      await ChamadosService.instance.atribuirTecnico(
-                        chamadoId: novo.id,
-                        tecnicoNome: tecnicoSelecionado!,
-                      );
-
                       if (context.mounted) {
                         final msg = novo.pendingSync
-                            ? 'O.S. Nº ${novo.numeroAts} salva localmente (offline/pendente de sincronização com o banco).'
-                            : 'O.S. Nº ${novo.numeroAts} criada e atribuída a $tecnicoSelecionado!';
+                            ? 'Proposta O.S. Nº ${novo.numeroAts} salva localmente (offline/pendente de sincronização com o banco).'
+                            : 'Proposta O.S. Nº ${novo.numeroAts} criada com sucesso!';
                         final cor = novo.pendingSync ? Colors.orange.shade800 : const Color(0xFF10B981);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
@@ -1301,7 +1410,7 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                     backgroundColor: const Color(0xFF0A369D),
                     foregroundColor: Colors.white,
                   ),
-                  child: const Text('Salvar e Atribuir'),
+                  child: const Text('Gerar Link de Proposta'),
                 ),
               ],
             );

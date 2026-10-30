@@ -132,7 +132,17 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
             }
           }
           if (role != null) {
-            AppAuthState.selectedRole = (role.toLowerCase() == 'gerente') ? 'Gerente' : 'Técnico';
+            final normalizedRole = role.toLowerCase().trim();
+            AppAuthState.currentUserRole = normalizedRole;
+
+            if (normalizedRole == 'gerente_tecnico') {
+              // Perfil híbrido: respeita a aba em que o usuário está (Gerente ou Técnico)
+              AppAuthState.selectedRole = (AppAuthState.selectedRole == 'Gerente') ? 'Gerente' : 'Técnico';
+            } else if (normalizedRole == 'gerente') {
+              AppAuthState.selectedRole = 'Gerente';
+            } else {
+              AppAuthState.selectedRole = 'Técnico';
+            }
           }
         }
       }

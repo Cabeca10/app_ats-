@@ -14,7 +14,8 @@ import '../../services/orcamento_pdf_service.dart';
 import '../../services/tecnicos_service.dart';
 
 class ChamadosListScreen extends StatefulWidget {
-  const ChamadosListScreen({super.key});
+  final VoidCallback? onAlternarParaTabela;
+  const ChamadosListScreen({super.key, this.onAlternarParaTabela});
 
   @override
   State<ChamadosListScreen> createState() => _ChamadosListScreenState();
@@ -131,7 +132,7 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
                   ElevatedButton.icon(
                     onPressed: () => _mostrarModalNovaProposta(context),
                     icon: const Icon(Icons.add, size: 16),
-                    label: const Text('Nova Proposta'),
+                    label: const Text('Nova Proposta Comercial'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF0A369D),
                       foregroundColor: Colors.white,
@@ -141,6 +142,21 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
                       elevation: 1,
                     ),
                   ),
+                  if (widget.onAlternarParaTabela != null) ...[
+                    const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      onPressed: widget.onAlternarParaTabela,
+                      icon: const Icon(Icons.table_rows_outlined, size: 16),
+                      label: const Text('Visão em Tabela'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF0A369D),
+                        side: const BorderSide(color: Color(0xFF93C5FD)),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -497,11 +513,11 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
                             textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                           ),
                         ),
-                        // b) Botão "WhatsApp"
+                        // b) Botão "Enviar WhatsApp"
                         ElevatedButton.icon(
                           onPressed: () => _compartilharWhatsApp(context, chamado),
                           icon: const Icon(Icons.chat, size: 15),
-                          label: const Text('WhatsApp'),
+                          label: const Text('Enviar WhatsApp'),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF25D366),
                             foregroundColor: Colors.white,
@@ -537,17 +553,14 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
                 ),
                 const SizedBox(width: 8),
 
-                // Botão "Atribuir Técnico" (destacado para chamados aprovados)
-                if (isAprovadoPendente ||
-                    chamado.status == ChamadoStatus.novo ||
-                    chamado.status == ChamadoStatus.orcamentoEnviado ||
-                    chamado.status == ChamadoStatus.orcamentoPendenteEnvio)
+                // Botão "Atribuir Técnico" (habilitado apenas quando status for aprovado_pendente)
+                if (isAprovadoPendente)
                   ElevatedButton.icon(
                     onPressed: () => _mostrarModalAtribuirTecnico(context, chamado),
                     icon: const Icon(Icons.person_add_alt_1, size: 16),
                     label: const Text('Atribuir Técnico'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: isAprovadoPendente ? const Color(0xFF10B981) : const Color(0xFF0A369D),
+                      backgroundColor: const Color(0xFF10B981),
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                       textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
@@ -1070,6 +1083,9 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
     final formKey = GlobalKey<FormState>();
     final contatoCtrl = TextEditingController();
     final emailCtrl = TextEditingController();
+    final telefoneCtrl = TextEditingController();
+    final maquinaCtrl = TextEditingController();
+    final defeitoCtrl = TextEditingController();
 
     showDialog(
       context: context,
@@ -1083,69 +1099,118 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
                 color: const Color(0xFFEFF6FF),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: const Icon(Icons.add_task, color: Color(0xFF0A369D)),
+              child: const Icon(Icons.request_quote_outlined, color: Color(0xFF0A369D)),
             ),
             const SizedBox(width: 12),
-            const Text('Nova Proposta', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text('Nova Proposta Comercial', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           ],
         ),
         content: SizedBox(
-          width: 440,
+          width: 500,
           child: Form(
             key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF1F5F9),
-                    borderRadius: BorderRadius.circular(8),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF1F5F9),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.info_outline, size: 16, color: Color(0xFF475569)),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'A proposta será aberta com status Pendente de Envio para validação e assinatura do cliente antes da alocação de técnico.',
+                            style: TextStyle(fontSize: 11, color: Color(0xFF475569)),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  child: const Row(
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: contatoCtrl,
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      labelText: 'Cliente / Solicitante *',
+                      hintText: 'Ex: Indústria Haas / Roberto Mendes',
+                      prefixIcon: const Icon(Icons.person_outline, size: 18),
+                      filled: true,
+                      fillColor: const Color(0xFFF8FAFC),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    ),
+                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Informe o nome do cliente / solicitante' : null,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: emailCtrl,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: InputDecoration(
+                      labelText: 'E-mail do Cliente',
+                      hintText: 'cliente@empresa.com.br',
+                      prefixIcon: const Icon(Icons.email_outlined, size: 18),
+                      filled: true,
+                      fillColor: const Color(0xFFF8FAFC),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
                     children: [
-                      Icon(Icons.info_outline, size: 16, color: Color(0xFF475569)),
-                      SizedBox(width: 8),
                       Expanded(
-                        child: Text(
-                          'A O.S./ATS será gerada automaticamente. Os demais dados serão completados na execução técnica ou pelo próprio cliente.',
-                          style: TextStyle(fontSize: 11, color: Color(0xFF475569)),
+                        child: TextFormField(
+                          controller: telefoneCtrl,
+                          decoration: InputDecoration(
+                            labelText: 'Telefone / WhatsApp',
+                            hintText: '(47) 99999-0000',
+                            prefixIcon: const Icon(Icons.phone_outlined, size: 18),
+                            filled: true,
+                            fillColor: const Color(0xFFF8FAFC),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextFormField(
+                          controller: maquinaCtrl,
+                          decoration: InputDecoration(
+                            labelText: 'Máquina / Modelo',
+                            hintText: 'Ex: Haas CNC ST-20',
+                            prefixIcon: const Icon(Icons.precision_manufacturing_outlined, size: 18),
+                            filled: true,
+                            fillColor: const Color(0xFFF8FAFC),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          ),
                         ),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: contatoCtrl,
-                  autofocus: true,
-                  decoration: InputDecoration(
-                    labelText: 'Nome do Cliente / Solicitante *',
-                    hintText: 'Ex: Indústria Haas / Roberto Mendes',
-                    prefixIcon: const Icon(Icons.person_outline, size: 18),
-                    filled: true,
-                    fillColor: const Color(0xFFF8FAFC),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: defeitoCtrl,
+                    maxLines: 2,
+                    decoration: InputDecoration(
+                      labelText: 'Defeito Breve / Ocorrência',
+                      hintText: 'Descreva a anomalia ou serviço solicitado',
+                      filled: true,
+                      fillColor: const Color(0xFFF8FAFC),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      contentPadding: const EdgeInsets.all(12),
+                    ),
                   ),
-                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Informe o nome do cliente / solicitante' : null,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: emailCtrl,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: InputDecoration(
-                    labelText: 'E-mail do Cliente',
-                    hintText: 'cliente@empresa.com.br',
-                    prefixIcon: const Icon(Icons.email_outlined, size: 18),
-                    filled: true,
-                    fillColor: const Color(0xFFF8FAFC),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -1161,6 +1226,9 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
                 final novo = await ChamadosService.instance.criarNovoChamado(
                   contato: contatoCtrl.text.trim(),
                   emailCliente: emailCtrl.text.trim().isNotEmpty ? emailCtrl.text.trim() : null,
+                  telefone: telefoneCtrl.text.trim(),
+                  modeloMaquina: maquinaCtrl.text.trim(),
+                  defeitoRelatado: defeitoCtrl.text.trim(),
                 );
 
                 if (context.mounted) {
@@ -1178,8 +1246,8 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
                 }
               }
             },
-            icon: const Icon(Icons.check, size: 18),
-            label: const Text('Criar Nova Proposta'),
+            icon: const Icon(Icons.link, size: 18),
+            label: const Text('Gerar Link de Proposta'),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF0A369D),
               foregroundColor: Colors.white,

@@ -16,15 +16,16 @@ import 'services/tecnicos_service.dart';
 // ============================================================================
 const String kSupabaseUrl = String.fromEnvironment(
   'SUPABASE_URL',
-  defaultValue: 'https://your-supabase-url.supabase.co',
+  defaultValue: 'https://wdjoemplqzryixixosvh.supabase.co',
 );
 const String kSupabaseAnonKey = String.fromEnvironment(
   'SUPABASE_ANON_KEY',
-  defaultValue: 'your-supabase-anon-key',
+  defaultValue: 'sb_publishable_HRi1dpoQRwuIucisv8BhZg_aFAWm97b',
 );
 
 class AppAuthState {
   static String selectedRole = 'Técnico'; // 'Técnico' or 'Gerente'
+  static String? currentUserRole; // 'gerente', 'tecnico', 'gerente_tecnico'
 }
 
 Future<void> main() async {
@@ -178,8 +179,19 @@ class _AuthWrapperState extends State<AuthWrapper> {
     }
 
     if (role != null && mounted) {
-      final novoRole =
-          (role.toLowerCase() == 'gerente') ? 'Gerente' : 'Técnico';
+      final normalizedRole = role.toLowerCase().trim();
+      AppAuthState.currentUserRole = normalizedRole;
+
+      final String novoRole;
+      if (normalizedRole == 'gerente_tecnico') {
+        // Perfil híbrido: mantém a aba selecionada pelo usuário (Gerente ou Técnico)
+        novoRole = (AppAuthState.selectedRole == 'Gerente') ? 'Gerente' : 'Técnico';
+      } else if (normalizedRole == 'gerente') {
+        novoRole = 'Gerente';
+      } else {
+        novoRole = 'Técnico';
+      }
+
       if (AppAuthState.selectedRole != novoRole) {
         setState(() {
           AppAuthState.selectedRole = novoRole;
