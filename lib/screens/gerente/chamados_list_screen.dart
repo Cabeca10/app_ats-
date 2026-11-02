@@ -12,6 +12,7 @@ import '../../services/ats_pdf_service.dart';
 import '../../services/chamados_service.dart';
 import '../../services/orcamento_pdf_service.dart';
 import '../../services/tecnicos_service.dart';
+import '../../utils/url_helper.dart';
 
 class ChamadosListScreen extends StatefulWidget {
   final VoidCallback? onAlternarParaTabela;
@@ -161,7 +162,6 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
               ),
             ),
 
-            // Lista de Chamados
             Expanded(
               child: chamadosFiltrados.isEmpty
                   ? Center(
@@ -177,13 +177,17 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
                         ],
                       ),
                     )
-                  : ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      itemCount: chamadosFiltrados.length,
-                      itemBuilder: (context, index) {
-                        final chamado = chamadosFiltrados[index];
-                        return _buildChamadoCard(chamado);
-                      },
+                  : RefreshIndicator(
+                      onRefresh: () => ChamadosService.instance.recarregarChamados(),
+                      color: const Color(0xFF0A369D),
+                      child: ListView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        itemCount: chamadosFiltrados.length,
+                        itemBuilder: (context, index) {
+                          final chamado = chamadosFiltrados[index];
+                          return _buildChamadoCard(chamado);
+                        },
+                      ),
                     ),
             ),
           ],
@@ -279,52 +283,21 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
               crossAxisAlignment: WrapCrossAlignment.center,
               alignment: WrapAlignment.spaceBetween,
               children: [
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 4,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF1F5F9),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: const Color(0xFFE2E8F0)),
-                      ),
-                      child: Text(
-                        'O.S. Nº ${chamado.numeroAts}',
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF0A369D),
-                        ),
-                      ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Text(
+                    'O.S. Nº ${chamado.numeroAts}',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF0A369D),
                     ),
-                    if (isAprovadoPendente)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFDCFCE7),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: const Color(0xFF86EFAC)),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.verified, size: 12, color: Color(0xFF166534)),
-                            SizedBox(width: 4),
-                            Text(
-                              'ORÇAMENTO APROVADO',
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF166534),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
+                  ),
                 ),
                 _buildStatusBadge(chamado.status),
               ],
@@ -543,7 +516,7 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
                 OutlinedButton.icon(
                   onPressed: () => _visualizarPdfOrcamento(chamado),
                   icon: const Icon(Icons.picture_as_pdf, size: 16),
-                  label: const Text('Ver PDF'),
+                  label: const Text('Ver PDF da Proposta'),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: const Color(0xFF0A369D),
                     side: const BorderSide(color: Color(0xFFBFDBFE)),
@@ -553,7 +526,7 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
                 ),
                 const SizedBox(width: 8),
 
-                // Botão "Atribuir Técnico" (habilitado apenas quando status for aprovado_pendente)
+                // Botão "Atribuir Técnico" (habilitado quando status for aprovado_pendente)
                 if (isAprovadoPendente)
                   ElevatedButton.icon(
                     onPressed: () => _mostrarModalAtribuirTecnico(context, chamado),
@@ -619,9 +592,9 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
         dotColor = const Color(0xFFEA580C);
         break;
       case ChamadoStatus.aprovadoPendente:
-        // A bolinha passa de laranja para VERDE (Orçamento Aprovado)
+        // Badge VERDE com bolinha verde e texto ORÇAMENTO APROVADO
         bg = const Color(0xFFDCFCE7);
-        fg = const Color(0xFF15803D);
+        fg = const Color(0xFF166534);
         border = const Color(0xFF86EFAC);
         dotColor = const Color(0xFF16A34A);
         break;
@@ -678,19 +651,63 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
   }
 
   Future<void> _visualizarPdfOrcamento(Chamado chamado) async {
-    // Gera em tempo de execução caso não esteja em URL pública remota
-    final dummySignature = List<int>.generate(100, (i) => 255);
-    final pdfBytes = await OrcamentoPdfService.generatePdf(
-      chamado: chamado,
-      signatureBytes: Uint8List.fromList(dummySignature),
-      responsavelNome: chamado.responsavelAceiteNome ?? 'Cliente Responsável',
-      responsavelCargo: chamado.responsavelAceiteCargo ?? 'Representante',
-    );
+    try {
+      Uint8List? pdfBytes;
 
-    await Printing.layoutPdf(
-      onLayout: (_) => pdfBytes,
-      name: 'Orcamento_ATS_${chamado.numeroAts}.pdf',
-    );
+      // 1. Tenta obter o PDF oficial assinado do Supabase Storage caso exista
+      final pdfUrl = chamado.orcamentoPdfUrl;
+      if (pdfUrl != null && pdfUrl.isNotEmpty) {
+        try {
+          String path = pdfUrl;
+          if (path.contains('/orcamentos/')) {
+            path = path.split('/orcamentos/').last;
+          }
+          final downloaded = await Supabase.instance.client.storage.from('orcamentos').download(path);
+          if (downloaded.isNotEmpty) {
+            pdfBytes = downloaded;
+          }
+        } catch (e) {
+          debugPrint('[ChamadosList] Erro ao baixar PDF da proposta do storage: $e');
+        }
+      }
+
+      // 2. Se não baixou do storage, renderiza em memória com assinatura digital (se houver)
+      if (pdfBytes == null) {
+        Uint8List signatureBytes;
+        if (chamado.assinaturaUrl != null && chamado.assinaturaUrl!.isNotEmpty) {
+          signatureBytes = await _obterAssinaturaBytes(chamado.assinaturaUrl);
+        } else {
+          // Imagem PNG 1x1 transparente para propostas ainda sem assinatura
+          signatureBytes = Uint8List.fromList([
+            137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1,
+            0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 11, 73, 68, 65, 84,
+            120, 1, 99, 96, 0, 0, 0, 2, 0, 1, 244, 113, 100, 166, 0, 0, 0, 0, 73, 69,
+            78, 68, 174, 66, 96, 130
+          ]);
+        }
+
+        pdfBytes = await OrcamentoPdfService.generatePdf(
+          chamado: chamado,
+          signatureBytes: signatureBytes,
+          responsavelNome: chamado.responsavelAceiteNome ?? 'Cliente Responsável',
+          responsavelCargo: chamado.responsavelAceiteCargo ?? 'Representante Autorizado',
+        );
+      }
+
+      await Printing.layoutPdf(
+        onLayout: (_) => pdfBytes!,
+        name: 'Proposta_ATS_${chamado.numeroAts}.pdf',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao visualizar PDF da proposta: $e'),
+            backgroundColor: const Color(0xFFDC2626),
+          ),
+        );
+      }
+    }
   }
 
   // ============================================================================
@@ -1000,15 +1017,8 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
     );
   }
 
-  String _gerarUrlPublica(Chamado chamado) {
-    final base = Uri.base.hasAuthority && Uri.base.authority.isNotEmpty
-        ? '${Uri.base.scheme}://${Uri.base.authority}'
-        : 'https://app.pmach.com';
-    return '$base/#/orcamento?token=${chamado.tokenUrl}';
-  }
-
   Future<void> _copiarLinkAprovacao(BuildContext context, Chamado chamado) async {
-    final url = _gerarUrlPublica(chamado);
+    final url = UrlHelper.buildOrcamentoUrl(chamado.tokenUrl);
     await Clipboard.setData(ClipboardData(text: url));
 
     final carimbo = 'Link copiado em ${DateFormat('dd/MM/yyyy às HH:mm').format(DateTime.now())}';
@@ -1035,11 +1045,27 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
   }
 
   Future<void> _compartilharWhatsApp(BuildContext context, Chamado chamado) async {
-    final url = _gerarUrlPublica(chamado);
-    final destinatario = chamado.contato != null && chamado.contato!.isNotEmpty
-        ? chamado.contato
+    final url = UrlHelper.buildOrcamentoUrl(chamado.tokenUrl);
+    final destinatario = (chamado.contato != null && chamado.contato!.trim().isNotEmpty)
+        ? chamado.contato!.trim()
         : chamado.razaoSocial;
-    final mensagem = 'Olá $destinatario! Segue o link para conferência e aprovação digital do Orçamento / O.S. Nº ${chamado.numeroAts} da ${chamado.razaoSocial}:\n$url\nBasta acessar para assinar diretamente pelo celular ou computador.';
+    final equipamento = (chamado.modeloMaquina != null && chamado.modeloMaquina!.trim().isNotEmpty)
+        ? '${chamado.fabricante ?? "Pmach"} - ${chamado.modeloMaquina}'
+        : 'Máquina CNC Industrial';
+
+    final mensagem = '''
+Olá, $destinatario!
+
+Segue o link para conferência e aprovação digital da Proposta Comercial / O.S. Nº ${chamado.numeroAts}.
+
+🔧 Equipamento: $equipamento
+🏢 Empresa: ${chamado.razaoSocial}
+
+Link da Proposta:
+$url
+
+Por favor, acesse o link acima para conferir os dados cadastrais da empresa e realizar a assinatura eletrônica da proposta. O atendimento técnico será imediatamente programado após a confirmação.
+'''.trim();
 
     String phoneParam = '';
     if (chamado.telefone != null && chamado.telefone!.trim().isNotEmpty) {

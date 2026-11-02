@@ -8,6 +8,7 @@ import 'screens/cliente/orcamento_client_screen.dart';
 import 'services/offline_storage_service.dart';
 import 'services/chamados_service.dart';
 import 'services/tecnicos_service.dart';
+export 'utils/url_helper.dart' show kAppBaseUrl;
 
 // ============================================================================
 // CONFIGURAÇÃO DO SUPABASE (REGRA DE APPSEC INEGOCIÁVEL)

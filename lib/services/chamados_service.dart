@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import '../models/chamado.dart';
+import '../utils/url_helper.dart';
 import 'offline_storage_service.dart';
 
 /// Serviço compartilhado para gerenciamento de chamados e sincronização entre Gerente e Técnico
@@ -12,16 +13,49 @@ class ChamadosService {
     _inicializarDados();
   }
 
+  /// Constrói a URL pública do orçamento / proposta para o cliente
+  static String buildOrcamentoUrl(String token) => UrlHelper.buildOrcamentoUrl(token);
+
   /// Notifier com a lista reativa de chamados em memória
   final ValueNotifier<List<Chamado>> chamadosNotifier = ValueNotifier<List<Chamado>>([]);
 
   /// Notifier para propagar avisos de falhas de sincronização/rede para a interface
   final ValueNotifier<String?> syncErrorNotifier = ValueNotifier<String?>(null);
 
+  RealtimeChannel? _realtimeChannel;
+
   void _inicializarDados() {
     chamadosNotifier.value = [];
     _sincronizarComSupabase();
+    _configurarRealtime();
   }
+
+  void _configurarRealtime() {
+    try {
+      _realtimeChannel?.unsubscribe();
+      _realtimeChannel = Supabase.instance.client
+          .channel('public:chamados')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'chamados',
+            callback: (payload) {
+              if (kDebugMode) {
+                debugPrint('[ChamadosService] Realtime: alteração na tabela chamados (${payload.eventType})');
+              }
+              _sincronizarComSupabase();
+            },
+          )
+          .subscribe();
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[ChamadosService] Aviso ao configurar realtime: $e');
+      }
+    }
+  }
+
+  /// Recarrega os chamados do servidor
+  Future<void> recarregarChamados() async => _sincronizarComSupabase();
 
   /// Limpa todos os chamados em memória e esvazia o cache do dispositivo
   Future<void> limparTudo({bool limparRemoto = false}) async {
@@ -69,6 +103,17 @@ class ChamadosService {
     try {
       return chamadosNotifier.value.firstWhere(
         (c) => c.numeroAts == numeroAts || c.id == numeroAts,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Recupera chamado por Token de URL a partir da memória
+  Chamado? obterChamadoPorToken(String token) {
+    try {
+      return chamadosNotifier.value.firstWhere(
+        (c) => c.tokenUrl == token,
       );
     } catch (_) {
       return null;

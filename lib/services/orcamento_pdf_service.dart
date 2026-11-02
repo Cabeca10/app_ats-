@@ -409,9 +409,9 @@ class OrcamentoPdfService {
     required String responsavelCargo,
   }) async {
     final client = Supabase.instance.client;
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final sigPath = 'assinaturas/${chamado.id}_$timestamp.png';
-    final pdfPath = 'pdfs/${chamado.id}_$timestamp.pdf';
+    final sigPath = 'assinaturas/assinatura_${chamado.tokenUrl}.png';
+    final cleanNumeroAts = chamado.numeroAts.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+    final pdfPath = 'pdfs/proposta_$cleanNumeroAts.pdf';
 
     String? signatureUrl;
     String? pdfUrl;
@@ -476,30 +476,40 @@ class OrcamentoPdfService {
       if (kDebugMode) {
         debugPrint('[OrcamentoPdfService] RPC aprovar_orcamento_por_token falhou, tentando update direto: $rpcErr');
       }
+      final updatePayload = {
+        'status': ChamadoStatus.aprovadoPendente,
+        'razao_social': chamado.razaoSocial,
+        'cnpj': chamado.cnpj,
+        'inscricao_estadual': chamado.inscricaoEstadual,
+        'endereco': chamado.endereco,
+        'telefone': chamado.telefone,
+        'cidade': chamado.cidade,
+        'fabricante': chamado.fabricante,
+        'modelo_maquina': chamado.modeloMaquina,
+        'numero_serie': chamado.numeroSerie,
+        'defeito_relatado': chamado.defeitoRelatado,
+        'termos_aceitos': true,
+        'aceite_data': agora.toIso8601String(),
+        'responsavel_aceite_nome': responsavelNome,
+        'responsavel_aceite_cargo': responsavelCargo,
+        'assinatura_url': signatureUrl,
+        'orcamento_pdf_url': pdfUrl,
+        'pdf_url': pdfUrl,
+        'updated_at': agora.toIso8601String(),
+      };
       try {
-        await client.from('chamados').update({
-          'status': ChamadoStatus.aprovadoPendente,
-          'razao_social': chamado.razaoSocial,
-          'cnpj': chamado.cnpj,
-          'inscricao_estadual': chamado.inscricaoEstadual,
-          'endereco': chamado.endereco,
-          'telefone': chamado.telefone,
-          'cidade': chamado.cidade,
-          'fabricante': chamado.fabricante,
-          'modelo_maquina': chamado.modeloMaquina,
-          'numero_serie': chamado.numeroSerie,
-          'defeito_relatado': chamado.defeitoRelatado,
-          'termos_aceitos': true,
-          'aceite_data': agora.toIso8601String(),
-          'responsavel_aceite_nome': responsavelNome,
-          'responsavel_aceite_cargo': responsavelCargo,
-          'assinatura_url': signatureUrl,
-          'orcamento_pdf_url': pdfUrl,
-          'updated_at': agora.toIso8601String(),
-        }).eq('token_url', chamado.tokenUrl);
+        await client.from('chamados').update(updatePayload).eq('token_url', chamado.tokenUrl);
       } catch (directErr) {
         if (kDebugMode) {
-          debugPrint('[OrcamentoPdfService] Erro no update direto de aprovação: $directErr');
+          debugPrint('[OrcamentoPdfService] Erro no update direto de aprovação, tentando sem pdf_url: $directErr');
+        }
+        try {
+          updatePayload.remove('pdf_url');
+          await client.from('chamados').update(updatePayload).eq('token_url', chamado.tokenUrl);
+        } catch (retryErr) {
+          if (kDebugMode) {
+            debugPrint('[OrcamentoPdfService] Erro no retry do update: $retryErr');
+          }
         }
       }
     }

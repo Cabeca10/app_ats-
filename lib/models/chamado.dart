@@ -18,7 +18,7 @@ class ChamadoStatus {
       case orcamentoEnviado:
         return 'Orçamento Enviado';
       case aprovadoPendente:
-        return 'Aprovado (Aguardando Técnico)';
+        return 'ORÇAMENTO APROVADO';
       case atribuido:
         return 'Técnico Atribuído';
       case emAtendimento:
@@ -87,6 +87,7 @@ class Chamado {
   final String? responsavelAceiteCargo;
   final String? assinaturaUrl;
   final String? orcamentoPdfUrl;
+  String? get pdfUrl => orcamentoPdfUrl;
 
   // Mídia adicional e sincronização offline-first
   final String? videoUrl;
@@ -271,6 +272,7 @@ class Chamado {
       'responsavel_aceite_cargo': responsavelAceiteCargo,
       'assinatura_url': assinaturaUrl,
       'orcamento_pdf_url': orcamentoPdfUrl,
+      'pdf_url': orcamentoPdfUrl,
       'video_url': videoUrl,
       'pending_sync': pendingSync,
       'tecnico_id': tecnicoId,
@@ -318,6 +320,7 @@ class Chamado {
       'responsavel_aceite_cargo': responsavelAceiteCargo,
       'assinatura_url': assinaturaUrl,
       'orcamento_pdf_url': orcamentoPdfUrl,
+      'pdf_url': orcamentoPdfUrl,
       'tecnico_id': tecnicoId,
       'tecnico_nome': tecnicoNome,
       'created_at': createdAt.toIso8601String(),
@@ -359,7 +362,7 @@ class Chamado {
       responsavelAceiteNome: map['responsavel_aceite_nome'],
       responsavelAceiteCargo: map['responsavel_aceite_cargo'],
       assinaturaUrl: map['assinatura_url'],
-      orcamentoPdfUrl: map['orcamento_pdf_url'],
+      orcamentoPdfUrl: map['orcamento_pdf_url'] ?? map['pdf_url'],
       videoUrl: map['video_url'],
       pendingSync: map['pending_sync'] == true,
       tecnicoId: map['tecnico_id'],

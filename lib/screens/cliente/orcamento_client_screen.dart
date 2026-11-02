@@ -5,6 +5,7 @@ import 'package:printing/printing.dart';
 import 'package:signature/signature.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/chamado.dart';
+import '../../services/chamados_service.dart';
 import '../../services/orcamento_pdf_service.dart';
 
 class OrcamentoClientScreen extends StatefulWidget {
@@ -39,6 +40,7 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
   bool _isSubmitting = false;
   bool _termosAceitos = false;
   bool _aprovadoComSucesso = false;
+  bool _jaAprovadoPreviamente = false;
   Uint8List? _generatedPdfBytes;
 
   Chamado? _chamado;
@@ -79,73 +81,69 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
     try {
       Map<String, dynamic>? data;
       try {
-        final rpcRes = await Supabase.instance.client
-            .rpc('obter_orcamento_por_token', params: {'p_token': widget.token});
-        if (rpcRes != null && rpcRes is Map) {
-          data = Map<String, dynamic>.from(rpcRes);
-        }
-      } catch (rpcErr) {
-        debugPrint('[OrcamentoClientScreen] RPC obter_orcamento falhou, tentando consulta direta: $rpcErr');
         final response = await Supabase.instance.client
             .from('chamados')
-            .select(Chamado.selectColumnsCompletas)
+            .select()
             .eq('token_url', widget.token)
             .maybeSingle();
         if (response != null) {
           data = Map<String, dynamic>.from(response);
         }
+      } catch (directErr) {
+        if (kDebugMode) {
+          debugPrint('[OrcamentoClientScreen] Consulta direta por token_url: $directErr');
+        }
+        try {
+          final rpcRes = await Supabase.instance.client
+              .rpc('obter_orcamento_por_token', params: {'p_token': widget.token});
+          if (rpcRes != null && rpcRes is Map) {
+            data = Map<String, dynamic>.from(rpcRes);
+          }
+        } catch (_) {}
       }
 
       if (data != null) {
         _chamado = Chamado.fromMap(data);
-        if (_chamado!.status == ChamadoStatus.aprovadoPendente ||
-            _chamado!.status == ChamadoStatus.atribuido ||
-            _chamado!.status == ChamadoStatus.finalizado) {
-          _aprovadoComSucesso = true;
-        }
       } else {
-        // Mock demonstrativo caso o token não exista no banco remoto ou em teste local
-        _chamado = _criarChamadoMock(widget.token);
+        final local = ChamadosService.instance.obterChamadoPorToken(widget.token);
+        if (local != null) {
+          _chamado = local;
+        } else {
+          _chamado = _criarChamadoMock(widget.token);
+        }
       }
 
-      // Os campos de Equipamento e Dados Cadastrais iniciam completamente EM BRANCO (controladores vazios),
-      // pois é o próprio cliente quem deve preencher suas informações fiscais e do equipamento antes de assinar.
-      _fabricanteController.text = '';
-      _modeloController.text = '';
-      _numeroSerieController.text = '';
-      _defeitoController.text = '';
-      _razaoSocialController.text = '';
-      _cnpjController.text = '';
-      _inscricaoEstadualController.text = '';
-      _enderecoController.text = '';
-      _telefoneController.text = '';
-      _nomeController.text = '';
-      _cargoController.text = '';
+      final jaAprovado = _chamado!.status == ChamadoStatus.aprovadoPendente ||
+          _chamado!.status == ChamadoStatus.atribuido ||
+          _chamado!.status == ChamadoStatus.emAtendimento ||
+          _chamado!.status == ChamadoStatus.finalizado ||
+          _chamado!.termosAceitos == true ||
+          _chamado!.aceiteData != null;
+
+      if (jaAprovado) {
+        _jaAprovadoPreviamente = true;
+        _aprovadoComSucesso = true;
+      }
+
+      // Preenchimento dos controladores (se existirem dados preenchidos no chamado)
+      _fabricanteController.text = _chamado?.fabricante ?? '';
+      _modeloController.text = _chamado?.modeloMaquina ?? '';
+      _numeroSerieController.text = _chamado?.numeroSerie ?? '';
+      _defeitoController.text = _chamado?.defeitoRelatado ?? '';
+      _razaoSocialController.text = (_chamado?.razaoSocial != null && !_chamado!.razaoSocial.startsWith('mock-'))
+          ? _chamado!.razaoSocial
+          : '';
+      _cnpjController.text = _chamado?.cnpj ?? '';
+      _inscricaoEstadualController.text = _chamado?.inscricaoEstadual ?? '';
+      _enderecoController.text = _chamado?.endereco ?? '';
+      _telefoneController.text = _chamado?.telefone ?? '';
+      _nomeController.text = _chamado?.responsavelAceiteNome ?? '';
+      _cargoController.text = _chamado?.responsavelAceiteCargo ?? '';
     } catch (e, stackTrace) {
       if (kDebugMode) {
         debugPrint('[OrcamentoClient] Erro ao carregar chamado/orçamento via token: $e\n$stackTrace');
       }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Falha na comunicação. Não foi possível carregar os dados atualizados do orçamento.'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
-      // Fallback gracioso caso haja erro de conexão
       _chamado = _criarChamadoMock(widget.token);
-      _fabricanteController.text = '';
-      _modeloController.text = '';
-      _numeroSerieController.text = '';
-      _defeitoController.text = '';
-      _razaoSocialController.text = '';
-      _cnpjController.text = '';
-      _inscricaoEstadualController.text = '';
-      _enderecoController.text = '';
-      _telefoneController.text = '';
-      _nomeController.text = '';
-      _cargoController.text = '';
     } finally {
       if (mounted) {
         setState(() {
@@ -179,6 +177,63 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
       kmEstimado: 45.0,
       horaViagemEstimada: 1.0,
       valorEstimadoTotal: 1850.00,
+    );
+  }
+
+  void _mostrarLoadingModal() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => PopScope(
+        canPop: false,
+        child: Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          backgroundColor: Colors.white,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 26),
+            constraints: const BoxConstraints(maxWidth: 460),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 3,
+                    color: Color(0xFF0A369D),
+                  ),
+                ),
+                SizedBox(width: 20),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Processando Assinatura',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF0F172A),
+                        ),
+                      ),
+                      SizedBox(height: 6),
+                      Text(
+                        'Compilando documento oficial e registrando assinatura eletrônica...',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFF475569),
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -226,6 +281,9 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
     setState(() {
       _isSubmitting = true;
     });
+
+    _mostrarLoadingModal();
+    bool modalAberto = true;
 
     try {
       final sigBytes = await _signatureController.toPngBytes();
@@ -282,12 +340,22 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
         responsavelCargo: cargo,
       );
 
+      if (mounted && modalAberto) {
+        Navigator.of(context, rootNavigator: true).pop();
+        modalAberto = false;
+      }
+
       if (mounted) {
         setState(() {
           _aprovadoComSucesso = true;
+          _jaAprovadoPreviamente = false;
         });
       }
     } catch (e) {
+      if (mounted && modalAberto) {
+        Navigator.of(context, rootNavigator: true).pop();
+        modalAberto = false;
+      }
       _mostrarAlerta('Erro ao registrar aprovação: ${e.toString()}');
     } finally {
       if (mounted) {
@@ -972,20 +1040,96 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
   }
 
 
+  Future<void> _baixarPdfAssinado() async {
+    try {
+      if (_generatedPdfBytes != null) {
+        await Printing.layoutPdf(
+          onLayout: (_) => _generatedPdfBytes!,
+          name: 'Proposta_${_chamado?.numeroAts ?? "ATS"}_Assinada.pdf',
+        );
+        return;
+      }
+
+      if (_chamado == null) return;
+
+      Uint8List? pdfBytes;
+      final pdfUrl = _chamado!.orcamentoPdfUrl;
+      if (pdfUrl != null && pdfUrl.isNotEmpty) {
+        try {
+          String path = pdfUrl;
+          if (path.contains('/orcamentos/')) {
+            path = path.split('/orcamentos/').last;
+          }
+          final downloaded = await Supabase.instance.client.storage.from('orcamentos').download(path);
+          if (downloaded.isNotEmpty) {
+            pdfBytes = downloaded;
+          }
+        } catch (e) {
+          debugPrint('[OrcamentoClient] Erro ao baixar PDF do storage: $e');
+        }
+      }
+
+      if (pdfBytes == null) {
+        Uint8List sigBytes = Uint8List.fromList([
+          137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1,
+          0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 11, 73, 68, 65, 84,
+          120, 1, 99, 96, 0, 0, 0, 2, 0, 1, 244, 113, 100, 166, 0, 0, 0, 0, 73, 69,
+          78, 68, 174, 66, 96, 130
+        ]);
+
+        if (_chamado!.assinaturaUrl != null && _chamado!.assinaturaUrl!.isNotEmpty) {
+          try {
+            String path = _chamado!.assinaturaUrl!;
+            if (path.contains('/orcamentos/')) {
+              path = path.split('/orcamentos/').last;
+            }
+            final downloadedSig = await Supabase.instance.client.storage.from('orcamentos').download(path);
+            if (downloadedSig.isNotEmpty) {
+              sigBytes = downloadedSig;
+            }
+          } catch (_) {}
+        }
+
+        pdfBytes = await OrcamentoPdfService.generatePdf(
+          chamado: _chamado!,
+          signatureBytes: sigBytes,
+          responsavelNome: _chamado!.responsavelAceiteNome ?? 'Responsável Autorizado',
+          responsavelCargo: _chamado!.responsavelAceiteCargo ?? 'Cliente',
+        );
+      }
+
+      await Printing.layoutPdf(
+        onLayout: (_) => pdfBytes!,
+        name: 'Proposta_${_chamado?.numeroAts ?? "ATS"}_Assinada.pdf',
+      );
+    } catch (e) {
+      _mostrarAlerta('Erro ao visualizar documento PDF: $e');
+    }
+  }
+
   Widget _buildTelaSucesso() {
+    final dateFormat = DateFormat('dd/MM/yyyy às HH:mm');
+    final titulo = _jaAprovadoPreviamente
+        ? 'Proposta Comercial Já Assinada'
+        : 'Orçamento Aprovado com Sucesso!';
+    final subtitulo = _jaAprovadoPreviamente
+        ? 'Esta proposta comercial para a Ordem de Serviço Nº ${_chamado?.numeroAts ?? ""} já foi formalmente aprovada e assinada eletronicamente.'
+        : 'A Ordem de Serviço Nº ${_chamado?.numeroAts ?? ""} foi registrada no sistema com sucesso. Nossa equipe técnica já foi notificada para providenciar o atendimento.';
+
     return Center(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 600),
+        constraints: const BoxConstraints(maxWidth: 620),
         child: Container(
           margin: const EdgeInsets.all(24),
           padding: const EdgeInsets.all(32),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFDCFCE7), width: 1.5),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 20,
+                color: const Color(0xFF10B981).withValues(alpha: 0.08),
+                blurRadius: 24,
                 offset: const Offset(0, 8),
               ),
             ],
@@ -994,58 +1138,122 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(18),
                 decoration: const BoxDecoration(
                   shape: BoxShape.circle,
                   color: Color(0xFFDCFCE7),
                 ),
-                child: const Icon(Icons.check, color: Color(0xFF166534), size: 48),
+                child: const Icon(Icons.verified, color: Color(0xFF166534), size: 48),
               ),
               const SizedBox(height: 20),
-              const Text(
-                'Orçamento Aprovado com Sucesso!',
+              Text(
+                titulo,
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
               ),
               const SizedBox(height: 10),
               Text(
-                'A Ordem de Serviço Nº ${_chamado?.numeroAts ?? ""} foi registrada no sistema. Nossa equipe técnica já foi notificada para providenciar o atendimento.',
+                subtitulo,
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 14, color: Color(0xFF64748B)),
+                style: const TextStyle(fontSize: 14, color: Color(0xFF475569), height: 1.4),
               ),
+              const SizedBox(height: 20),
+
+              // Card com resumo dos dados registrados
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'REGISTRO DA PROPOSTA',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF0A369D),
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFDCFCE7),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Text(
+                            'ORÇAMENTO APROVADO',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF166534),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Divider(height: 18),
+                    _buildLinhaResumo('O.S. / Proposta:', 'Nº ${_chamado?.numeroAts ?? ""}'),
+                    _buildLinhaResumo('Empresa:', _chamado?.razaoSocial ?? 'Não informado'),
+                    if (_chamado?.cnpj != null && _chamado!.cnpj!.isNotEmpty)
+                      _buildLinhaResumo('CNPJ:', _chamado!.cnpj!),
+                    if (_chamado?.responsavelAceiteNome != null && _chamado!.responsavelAceiteNome!.isNotEmpty)
+                      _buildLinhaResumo('Responsável:', '${_chamado!.responsavelAceiteNome} (${_chamado!.responsavelAceiteCargo ?? "Cliente"})'),
+                    if (_chamado?.aceiteData != null)
+                      _buildLinhaResumo('Data de Assinatura:', dateFormat.format(_chamado!.aceiteData!)),
+                  ],
+                ),
+              ),
+
               const SizedBox(height: 24),
+
               ElevatedButton.icon(
-                onPressed: () async {
-                  if (_generatedPdfBytes != null) {
-                    await Printing.layoutPdf(
-                      onLayout: (_) => _generatedPdfBytes!,
-                      name: 'Orcamento_${_chamado?.numeroAts ?? "ATS"}_Assinado.pdf',
-                    );
-                  } else if (_chamado != null) {
-                    final dummySignature = List<int>.generate(80, (i) => 255);
-                    final pdfBytes = await OrcamentoPdfService.generatePdf(
-                      chamado: _chamado!,
-                      signatureBytes: Uint8List.fromList(dummySignature),
-                      responsavelNome: _chamado!.responsavelAceiteNome ?? 'Responsável Autorizado',
-                      responsavelCargo: _chamado!.responsavelAceiteCargo ?? 'Cliente',
-                    );
-                    await Printing.layoutPdf(
-                      onLayout: (_) => pdfBytes,
-                      name: 'Orcamento_${_chamado?.numeroAts ?? "ATS"}_Assinado.pdf',
-                    );
-                  }
-                },
-                icon: const Icon(Icons.picture_as_pdf),
-                label: const Text('Baixar Orçamento Assinado (PDF)'),
+                onPressed: _baixarPdfAssinado,
+                icon: const Icon(Icons.picture_as_pdf, size: 20),
+                label: const Text('Baixar Cópia em PDF da Proposta', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF0A369D),
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  elevation: 2,
                 ),
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildLinhaResumo(String label, String valor) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 140,
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              valor,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF0F172A)),
+            ),
+          ),
+        ],
       ),
     );
   }
