@@ -44,7 +44,16 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+# Firebase
+.firebase/
+.firebaserc.bak
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
 # Security & Secrets
+
+
 .env
 .env.*
 *.key
