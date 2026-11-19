@@ -1218,10 +1218,10 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
   }
 
   Widget _buildTelaSucesso() {
-    final dateFormat = DateFormat('dd/MM/yyyy às HH:mm');
+    final dateFormat = DateFormat("dd/MM/yyyy 'às' HH:mm");
     final titulo = _jaAprovadoPreviamente
         ? 'Proposta Comercial Já Assinada'
-        : 'Orçamento Aprovado com Sucesso!';
+        : 'Pedido Enviado com Sucesso!';
     final subtitulo = _jaAprovadoPreviamente
         ? 'Esta proposta comercial para a Ordem de Serviço Nº ${_chamado?.numeroAts ?? ""} já foi formalmente aprovada e assinada eletronicamente.'
         : 'A Ordem de Serviço Nº ${_chamado?.numeroAts ?? ""} foi registrada no sistema com sucesso. Nossa equipe técnica já foi notificada para providenciar o atendimento.';
@@ -1284,15 +1284,18 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
-                          'REGISTRO DA PROPOSTA',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF0A369D),
-                            letterSpacing: 0.5,
+                        const Flexible(
+                          child: Text(
+                            'REGISTRO DA PROPOSTA',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF0A369D),
+                              letterSpacing: 0.5,
+                            ),
                           ),
                         ),
+                        const SizedBox(width: 8),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(
@@ -1300,7 +1303,7 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: const Text(
-                            'ORÇAMENTO APROVADO',
+                            'PEDIDO ENVIADO',
                             style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.bold,
