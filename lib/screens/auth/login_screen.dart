@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../main.dart';
+import '../../services/chamados_service.dart';
+import '../../services/offline_storage_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -144,13 +146,21 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
               AppAuthState.selectedRole = 'Técnico';
             }
           }
+
+          await OfflineStorageService.instance.salvarPerfilSelecionado(AppAuthState.selectedRole);
+          ChamadosService.instance.inicializarESincronizar();
         }
       }
     } on AuthException catch (e) {
+      final msgOriginal = e.message;
+      final isErroRede = msgOriginal.contains('Failed to fetch') || msgOriginal.contains('SocketException');
+      final mensagemExibida = isErroRede
+          ? 'Sem conexão com o servidor Supabase. Verifique sua internet ou se o projeto no Supabase está ativo.'
+          : msgOriginal;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(e.message),
+            content: Text(mensagemExibida),
             backgroundColor: Colors.redAccent,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -158,10 +168,15 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         );
       }
     } catch (e) {
+      final errStr = e.toString();
+      final isErroRede = errStr.contains('Failed to fetch') || errStr.contains('SocketException');
+      final mensagemExibida = isErroRede
+          ? 'Sem conexão com o servidor Supabase. Verifique sua internet ou se o projeto no Supabase está ativo.'
+          : 'Ocorreu um erro inesperado: $e';
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Ocorreu um erro inesperado: $e'),
+            content: Text(mensagemExibida),
             backgroundColor: Colors.redAccent,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -348,6 +363,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                                           setState(() {
                                             AppAuthState.selectedRole = 'Técnico';
                                           });
+                                          OfflineStorageService.instance.salvarPerfilSelecionado('Técnico');
                                         },
                                         child: AnimatedContainer(
                                           duration: const Duration(milliseconds: 250),
@@ -379,6 +395,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                                           setState(() {
                                             AppAuthState.selectedRole = 'Gerente';
                                           });
+                                          OfflineStorageService.instance.salvarPerfilSelecionado('Gerente');
                                         },
                                         child: AnimatedContainer(
                                           duration: const Duration(milliseconds: 250),

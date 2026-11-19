@@ -48,6 +48,7 @@ class Chamado {
   final String? cnpj;
   final String? inscricaoEstadual;
   final String? telefone;
+  String? get fone => telefone;
   final String? emailCliente;
   String? get clienteEmail => emailCliente;
   final String? endereco;
@@ -102,7 +103,9 @@ class Chamado {
 
   // Auditoria
   final DateTime createdAt;
+  DateTime get criadoEm => createdAt;
   final DateTime? updatedAt;
+  DateTime? get atualizadoEm => updatedAt;
 
   Chamado({
     required this.id,
@@ -113,7 +116,8 @@ class Chamado {
     this.dataEnvioLink,
     this.cnpj,
     this.inscricaoEstadual,
-    this.telefone,
+    String? telefone,
+    String? fone,
     String? emailCliente,
     String? clienteEmail,
     this.endereco,
@@ -145,9 +149,13 @@ class Chamado {
     this.tecnicoNome,
     this.diasTrabalho = const [],
     DateTime? createdAt,
+    DateTime? criadoEm,
     this.updatedAt,
-  })  : emailCliente = emailCliente ?? clienteEmail,
-        createdAt = createdAt ?? DateTime.now();
+  })  : telefone = (telefone != null && telefone.trim().isNotEmpty)
+            ? telefone.trim()
+            : ((fone != null && fone.trim().isNotEmpty) ? fone.trim() : null),
+        emailCliente = emailCliente ?? clienteEmail,
+        createdAt = createdAt ?? criadoEm ?? DateTime.now();
 
   Chamado copyWith({
     String? id,
@@ -159,6 +167,7 @@ class Chamado {
     String? cnpj,
     String? inscricaoEstadual,
     String? telefone,
+    String? fone,
     String? emailCliente,
     String? clienteEmail,
     String? endereco,
@@ -190,6 +199,7 @@ class Chamado {
     String? tecnicoNome,
     List<DiaTrabalho>? diasTrabalho,
     DateTime? createdAt,
+    DateTime? criadoEm,
     DateTime? updatedAt,
   }) {
     return Chamado(
@@ -201,7 +211,7 @@ class Chamado {
       dataEnvioLink: dataEnvioLink ?? this.dataEnvioLink,
       cnpj: cnpj ?? this.cnpj,
       inscricaoEstadual: inscricaoEstadual ?? this.inscricaoEstadual,
-      telefone: telefone ?? this.telefone,
+      telefone: telefone ?? fone ?? this.telefone,
       emailCliente: emailCliente ?? clienteEmail ?? this.emailCliente,
       endereco: endereco ?? this.endereco,
       cidade: cidade ?? this.cidade,
@@ -231,7 +241,7 @@ class Chamado {
       tecnicoId: tecnicoId ?? this.tecnicoId,
       tecnicoNome: tecnicoNome ?? this.tecnicoNome,
       diasTrabalho: diasTrabalho ?? this.diasTrabalho,
-      createdAt: createdAt ?? this.createdAt,
+      createdAt: createdAt ?? criadoEm ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
   }
@@ -247,6 +257,7 @@ class Chamado {
       'cnpj': cnpj,
       'inscricao_estadual': inscricaoEstadual,
       'telefone': telefone,
+      'fone': telefone,
       'cliente_email': emailCliente,
       'email_cliente': emailCliente,
       'endereco': endereco,
@@ -279,6 +290,7 @@ class Chamado {
       'tecnico_nome': tecnicoNome,
       'dias_trabalho': diasTrabalho.map((d) => d.toMap()).toList(),
       'created_at': createdAt.toIso8601String(),
+      'criado_em': createdAt.toIso8601String(),
       'updated_at': updatedAt?.toIso8601String(),
     };
   }
@@ -330,26 +342,26 @@ class Chamado {
 
   factory Chamado.fromMap(Map<String, dynamic> map) {
     return Chamado(
-      id: map['id'] ?? '',
-      numeroAts: map['numero_ats'] ?? '',
-      razaoSocial: map['razao_social'] ?? '',
-      contato: map['contato'],
-      anotacaoEnvio: map['anotacao_envio'],
-      dataEnvioLink: map['data_envio_link'] != null ? DateTime.tryParse(map['data_envio_link']) : null,
-      cnpj: map['cnpj'],
-      inscricaoEstadual: map['inscricao_estadual'],
-      telefone: map['telefone'],
-      emailCliente: map['email_cliente'] ?? map['cliente_email'],
-      endereco: map['endereco'],
-      cidade: map['cidade'],
+      id: map['id']?.toString() ?? '',
+      numeroAts: map['numero_ats']?.toString() ?? '',
+      razaoSocial: map['razao_social']?.toString() ?? '',
+      contato: map['contato']?.toString(),
+      anotacaoEnvio: map['anotacao_envio']?.toString(),
+      dataEnvioLink: map['data_envio_link'] != null ? DateTime.tryParse(map['data_envio_link'].toString()) : null,
+      cnpj: map['cnpj']?.toString(),
+      inscricaoEstadual: map['inscricao_estadual']?.toString(),
+      telefone: (map['telefone'] ?? map['fone'])?.toString(),
+      emailCliente: (map['email_cliente'] ?? map['cliente_email'])?.toString(),
+      endereco: map['endereco']?.toString(),
+      cidade: map['cidade']?.toString(),
       tipoAtendimento: map['tipo_atendimento']?.toString() ?? 'MANUTENÇÃO',
-      fabricante: map['fabricante'],
-      modeloMaquina: map['modelo_maquina'],
-      numeroSerie: map['numero_serie'],
-      defeitoRelatado: map['defeito_relatado'],
-      servicoExecutado: map['servico_executado'],
-      tokenUrl: map['token_url'] ?? '',
-      status: map['status'] ?? ChamadoStatus.novo,
+      fabricante: map['fabricante']?.toString(),
+      modeloMaquina: map['modelo_maquina']?.toString(),
+      numeroSerie: map['numero_serie']?.toString(),
+      defeitoRelatado: map['defeito_relatado']?.toString(),
+      servicoExecutado: map['servico_executado']?.toString(),
+      tokenUrl: map['token_url']?.toString() ?? '',
+      status: map['status']?.toString() ?? ChamadoStatus.novo,
       taxaHorariaComercial: (map['taxa_horaria_comercial'] as num?)?.toDouble() ?? 306.00,
       taxaHorariaExtra: (map['taxa_horaria_extra'] as num?)?.toDouble() ?? 459.00,
       taxaHorariaEspecial: (map['taxa_horaria_especial'] as num?)?.toDouble() ?? 612.00,
@@ -358,22 +370,30 @@ class Chamado {
       horaViagemEstimada: (map['hora_viagem_estimada'] as num?)?.toDouble(),
       valorEstimadoTotal: (map['valor_estimado_total'] as num?)?.toDouble(),
       termosAceitos: map['termos_aceitos'] == true,
-      aceiteData: map['aceite_data'] != null ? DateTime.tryParse(map['aceite_data']) : null,
-      responsavelAceiteNome: map['responsavel_aceite_nome'],
-      responsavelAceiteCargo: map['responsavel_aceite_cargo'],
-      assinaturaUrl: map['assinatura_url'],
-      orcamentoPdfUrl: map['orcamento_pdf_url'] ?? map['pdf_url'],
-      videoUrl: map['video_url'],
+      aceiteData: map['aceite_data'] != null ? DateTime.tryParse(map['aceite_data'].toString()) : null,
+      responsavelAceiteNome: map['responsavel_aceite_nome']?.toString(),
+      responsavelAceiteCargo: map['responsavel_aceite_cargo']?.toString(),
+      assinaturaUrl: map['assinatura_url']?.toString(),
+      orcamentoPdfUrl: (map['orcamento_pdf_url'] ?? map['pdf_url'])?.toString(),
+      videoUrl: map['video_url']?.toString(),
       pendingSync: map['pending_sync'] == true,
-      tecnicoId: map['tecnico_id'],
-      tecnicoNome: map['tecnico_nome'],
+      tecnicoId: map['tecnico_id']?.toString(),
+      tecnicoNome: map['tecnico_nome']?.toString(),
       diasTrabalho: map['dias_trabalho'] != null
           ? (map['dias_trabalho'] as List)
               .map((item) => DiaTrabalho.fromMap(Map<String, dynamic>.from(item as Map)))
               .toList()
           : const [],
-      createdAt: map['created_at'] != null ? DateTime.parse(map['created_at']) : DateTime.now(),
-      updatedAt: map['updated_at'] != null ? DateTime.tryParse(map['updated_at']) : null,
+      createdAt: map['created_at'] != null
+          ? (DateTime.tryParse(map['created_at'].toString()) ?? DateTime.now())
+          : (map['criado_em'] != null
+              ? (DateTime.tryParse(map['criado_em'].toString()) ?? DateTime.now())
+              : DateTime.now()),
+      updatedAt: map['updated_at'] != null
+          ? DateTime.tryParse(map['updated_at'].toString())
+          : (map['atualizado_em'] != null
+              ? DateTime.tryParse(map['atualizado_em'].toString())
+              : null),
     );
   }
 

@@ -95,16 +95,43 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
       }
 
       // AppSec: Pede estritamente as colunas necessárias para o card e filtra pelo ID
-      final response = await Supabase.instance.client
-          .from('chamados')
-          .select(Chamado.selectColumnsMinimas)
-          .eq('tecnico_id', user.id)
-          .order('created_at', ascending: false);
+      dynamic response;
+      try {
+        response = await Supabase.instance.client
+            .from('chamados')
+            .select(Chamado.selectColumnsMinimas)
+            .eq('tecnico_id', user.id)
+            .order('created_at', ascending: false);
+      } catch (_) {
+        try {
+          response = await Supabase.instance.client
+              .from('chamados')
+              .select(Chamado.selectColumnsMinimas)
+              .eq('tecnico_id', user.id)
+              .order('criado_em', ascending: false);
+        } catch (_) {
+          try {
+            response = await Supabase.instance.client
+                .from('chamados')
+                .select('*')
+                .eq('tecnico_id', user.id)
+                .order('created_at', ascending: false);
+          } catch (_) {
+            response = await Supabase.instance.client
+                .from('chamados')
+                .select('*')
+                .eq('tecnico_id', user.id)
+                .order('criado_em', ascending: false);
+          }
+        }
+      }
 
-      if ((response as List).isNotEmpty) {
-        final list = (response as List).map((row) {
+      if (response is List && response.isNotEmpty) {
+        final list = response.map((row) {
+          final rawAts = row['numero_ats']?.toString() ?? '';
+          final ticketId = rawAts.toUpperCase().startsWith('ATS-') ? rawAts : 'ATS-$rawAts';
           return Ticket(
-            id: 'ATS-${row['numero_ats'] ?? ''}',
+            id: ticketId,
             chamadoId: row['id']?.toString(),
             numeroAts: row['numero_ats']?.toString(),
             companyName: row['razao_social']?.toString() ?? 'Cliente',

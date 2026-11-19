@@ -454,8 +454,11 @@ class OrcamentoPdfService {
 
     // 3. Atualiza o Chamado no Supabase para 'aprovado_pendente' com dados cadastrais preenchidos
     final agora = DateTime.now();
+    bool atualizadoNoBanco = false;
+    Object? erroBanco;
+
     try {
-      await client.rpc('aprovar_orcamento_por_token', params: {
+      final rpcRes = await client.rpc('aprovar_orcamento_por_token', params: {
         'p_token': chamado.tokenUrl,
         'p_razao_social': chamado.razaoSocial,
         'p_cnpj': chamado.cnpj,
@@ -472,11 +475,16 @@ class OrcamentoPdfService {
         'p_assinatura_url': signatureUrl,
         'p_orcamento_pdf_url': pdfUrl,
       });
+      atualizadoNoBanco = rpcRes == true;
     } catch (rpcErr) {
+      erroBanco = rpcErr;
       if (kDebugMode) {
         debugPrint('[OrcamentoPdfService] RPC aprovar_orcamento_por_token falhou, tentando update direto: $rpcErr');
       }
-      final updatePayload = {
+    }
+
+    if (!atualizadoNoBanco) {
+      final updatePayload = <String, dynamic>{
         'status': ChamadoStatus.aprovadoPendente,
         'razao_social': chamado.razaoSocial,
         'cnpj': chamado.cnpj,
@@ -498,20 +506,46 @@ class OrcamentoPdfService {
         'updated_at': agora.toIso8601String(),
       };
       try {
-        await client.from('chamados').update(updatePayload).eq('token_url', chamado.tokenUrl);
+        final updated = await client
+            .from('chamados')
+            .update(updatePayload)
+            .eq('token_url', chamado.tokenUrl)
+            .select('id')
+            .maybeSingle();
+        if (updated != null) {
+          atualizadoNoBanco = true;
+          erroBanco = null;
+        }
       } catch (directErr) {
+        erroBanco = directErr;
         if (kDebugMode) {
           debugPrint('[OrcamentoPdfService] Erro no update direto de aprovação, tentando sem pdf_url: $directErr');
         }
         try {
           updatePayload.remove('pdf_url');
-          await client.from('chamados').update(updatePayload).eq('token_url', chamado.tokenUrl);
+          final updated = await client
+              .from('chamados')
+              .update(updatePayload)
+              .eq('token_url', chamado.tokenUrl)
+              .select('id')
+              .maybeSingle();
+          if (updated != null) {
+            atualizadoNoBanco = true;
+            erroBanco = null;
+          }
         } catch (retryErr) {
+          erroBanco = retryErr;
           if (kDebugMode) {
             debugPrint('[OrcamentoPdfService] Erro no retry do update: $retryErr');
           }
         }
       }
+    }
+
+    if (!atualizadoNoBanco) {
+      throw Exception(
+        'Não foi possível confirmar a aprovação no servidor${erroBanco != null ? ": $erroBanco" : " (orçamento não encontrado no banco)"}. Tente novamente.',
+      );
     }
 
     // Sincroniza o estado reativo local no ChamadosService

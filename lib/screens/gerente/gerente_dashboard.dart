@@ -11,6 +11,7 @@ import '../../models/tecnico.dart';
 import '../../services/ats_pdf_service.dart';
 import '../../services/chamados_service.dart';
 import '../../services/tecnicos_service.dart';
+import '../../utils/url_helper.dart';
 import 'chamados_list_screen.dart';
 
 const Color _emerald = Color(0xFF10B981);
@@ -32,6 +33,12 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
   final _dateFormat = DateFormat('dd/MM/yyyy HH:mm');
 
   List<String> get _tecnicosDisponiveis => TecnicosService.instance.nomesTecnicos;
+
+  @override
+  void initState() {
+    super.initState();
+    ChamadosService.instance.inicializarESincronizar();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -225,6 +232,19 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                             ),
                             const SizedBox(width: 12),
                           ],
+                          // Botão para atualizar manualmente a listagem
+                          OutlinedButton.icon(
+                            onPressed: () => ChamadosService.instance.recarregarChamados(),
+                            icon: const Icon(Icons.refresh, size: 18),
+                            label: const Text('Atualizar'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF0A369D),
+                              side: const BorderSide(color: Color(0xFFCBD5E1)),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
                           // Botão Principal de Ação: Nova Proposta Comercial
                           ElevatedButton.icon(
                             onPressed: () => _abrirModalCriarEAtribuir(context),
@@ -242,6 +262,44 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                       ),
                     ],
                   ),
+                ),
+
+                // Banner de alerta caso haja erro de sincronização com o Supabase
+                ValueListenableBuilder<String?>(
+                  valueListenable: ChamadosService.instance.syncErrorNotifier,
+                  builder: (context, syncError, _) {
+                    if (syncError == null || syncError.isEmpty) {
+                      return const SizedBox.shrink();
+                    }
+                    return Container(
+                      width: double.infinity,
+                      color: const Color(0xFFFEF2F2),
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626), size: 20),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              syncError,
+                              style: const TextStyle(
+                                color: Color(0xFF991B1B),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => ChamadosService.instance.syncErrorNotifier.value = null,
+                            icon: const Icon(Icons.close, size: 18, color: Color(0xFF991B1B)),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                            tooltip: 'Fechar aviso',
+                          ),
+                        ],
+                      ),
+                    );
+                  },
                 ),
 
                 // Conteúdo da Aba Selecionada
@@ -462,7 +520,7 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                                 cells: [
                                   DataCell(
                                     Text(
-                                      'ATS-${c.numeroAts}',
+                                      c.numeroAts.toUpperCase().startsWith('ATS-') ? c.numeroAts : 'ATS-${c.numeroAts}',
                                       style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0A369D), fontSize: 13),
                                     ),
                                   ),
@@ -629,10 +687,7 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
   }
 
   String _gerarUrlPublica(Chamado chamado) {
-    final base = Uri.base.hasAuthority && Uri.base.authority.isNotEmpty
-        ? '${Uri.base.scheme}://${Uri.base.authority}'
-        : 'https://app.pmach.com';
-    return '$base/#/orcamento?token=${chamado.tokenUrl}';
+    return UrlHelper.buildOrcamentoUrl(chamado.tokenUrl);
   }
 
   Future<void> _copiarLinkAprovacao(BuildContext context, Chamado chamado) async {
@@ -809,7 +864,10 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                           contentPadding: EdgeInsets.zero,
                           leading: CircleAvatar(
                             backgroundColor: const Color(0xFFEFF6FF),
-                            child: Text(c.numeroAts.substring(c.numeroAts.length - 2), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF0A369D))),
+                            child: Text(
+                              c.numeroAts.length >= 2 ? c.numeroAts.substring(c.numeroAts.length - 2) : c.numeroAts,
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF0A369D)),
+                            ),
                           ),
                           title: Text(c.razaoSocial, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                           subtitle: Text('Máquina: ${c.modeloMaquina ?? "N/A"} • Técnico: ${c.tecnicoNome ?? "Pendente"}', style: const TextStyle(fontSize: 12)),

@@ -10,16 +10,24 @@ class OfflineStorageService {
   OfflineStorageService._internal();
 
   static const String boxName = 'ats_offline_data';
+  static const String _selectedRoleKey = 'auth_selected_role';
   Box? _box;
+
+  /// Retorna a caixa segura caso esteja aberta ou nula caso contrário
+  Box? get boxOrNull => (_box != null && _box!.isOpen) ? _box : null;
 
   /// Inicializa o Hive e abre o Box de persistência offline
   Future<void> init() async {
     try {
       await Hive.initFlutter();
       _box = await Hive.openBox(boxName);
-      debugPrint('[OfflineStorage] Hive inicializado com sucesso. Box: $boxName');
+      if (kDebugMode) {
+        debugPrint('[OfflineStorage] Hive inicializado com sucesso. Box: $boxName');
+      }
     } catch (e) {
-      debugPrint('[OfflineStorage] Erro ao inicializar Hive: $e');
+      if (kDebugMode) {
+        debugPrint('[OfflineStorage] Erro ao inicializar Hive: $e');
+      }
     }
   }
 
@@ -33,10 +41,16 @@ class OfflineStorageService {
   /// Limpa todos os dados armazenados localmente no Hive
   Future<void> limparTudo() async {
     try {
-      await box.clear();
-      debugPrint('[OfflineStorage] Cache local limpo com sucesso.');
+      if (_box != null && _box!.isOpen) {
+        await _box!.clear();
+      }
+      if (kDebugMode) {
+        debugPrint('[OfflineStorage] Cache local limpo com sucesso.');
+      }
     } catch (e) {
-      debugPrint('[OfflineStorage] Erro ao limpar cache Hive: $e');
+      if (kDebugMode) {
+        debugPrint('[OfflineStorage] Erro ao limpar cache Hive: $e');
+      }
     }
   }
 
@@ -46,20 +60,37 @@ class OfflineStorageService {
     required Map<String, dynamic> dados,
     bool pendingSync = true,
   }) async {
-    final payload = Map<String, dynamic>.from(dados);
-    payload['id'] = id;
-    payload['pending_sync'] = pendingSync;
-    payload['local_saved_at'] = DateTime.now().toIso8601String();
+    try {
+      final safeBox = boxOrNull ?? await Hive.openBox(boxName);
+      final payload = Map<String, dynamic>.from(dados);
+      payload['id'] = id;
+      payload['pending_sync'] = pendingSync;
+      payload['local_saved_at'] = DateTime.now().toIso8601String();
 
-    await box.put(id, payload);
-    debugPrint('[OfflineStorage] Atendimento $id salvo localmente. pending_sync: $pendingSync');
+      await safeBox.put(id, payload);
+      if (kDebugMode) {
+        debugPrint('[OfflineStorage] Atendimento $id salvo localmente. pending_sync: $pendingSync');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[OfflineStorage] Erro ao salvar atendimento local: $e');
+      }
+    }
   }
 
   /// Recupera um atendimento armazenado localmente
   Map<String, dynamic>? obterAtendimento(String id) {
-    final data = box.get(id);
-    if (data != null && data is Map) {
-      return Map<String, dynamic>.from(data);
+    try {
+      final safeBox = boxOrNull;
+      if (safeBox == null) return null;
+      final data = safeBox.get(id);
+      if (data != null && data is Map) {
+        return Map<String, dynamic>.from(data);
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[OfflineStorage] Erro ao obter atendimento $id: $e');
+      }
     }
     return null;
   }
@@ -67,10 +98,18 @@ class OfflineStorageService {
   /// Retorna todos os atendimentos marcados com pending_sync = true
   List<Map<String, dynamic>> obterPendentes() {
     final pendentes = <Map<String, dynamic>>[];
-    for (var key in box.keys) {
-      final item = box.get(key);
-      if (item is Map && item['pending_sync'] == true) {
-        pendentes.add(Map<String, dynamic>.from(item));
+    try {
+      final safeBox = boxOrNull;
+      if (safeBox == null) return pendentes;
+      for (var key in safeBox.keys) {
+        final item = safeBox.get(key);
+        if (item is Map && item['pending_sync'] == true) {
+          pendentes.add(Map<String, dynamic>.from(item));
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[OfflineStorage] Erro ao obter pendentes: $e');
       }
     }
     return pendentes;
@@ -78,62 +117,159 @@ class OfflineStorageService {
 
   /// Marca um atendimento como sincronizado no Supabase
   Future<void> marcarSincronizado(String id) async {
-    final item = obterAtendimento(id);
-    if (item != null) {
-      item['pending_sync'] = false;
-      item['synced_at'] = DateTime.now().toIso8601String();
-      await box.put(id, item);
-      debugPrint('[OfflineStorage] Atendimento $id marcado como sincronizado.');
+    try {
+      final safeBox = boxOrNull;
+      if (safeBox == null) return;
+      final item = obterAtendimento(id);
+      if (item != null) {
+        item['pending_sync'] = false;
+        item['synced_at'] = DateTime.now().toIso8601String();
+        await safeBox.put(id, item);
+        if (kDebugMode) {
+          debugPrint('[OfflineStorage] Atendimento $id marcado como sincronizado.');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[OfflineStorage] Erro ao marcar sincronizado: $e');
+      }
     }
   }
 
   /// Remove registro do armazenamento local
   Future<void> remover(String id) async {
-    await box.delete(id);
+    try {
+      final safeBox = boxOrNull;
+      if (safeBox != null) {
+        await safeBox.delete(id);
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[OfflineStorage] Erro ao remover $id: $e');
+      }
+    }
   }
 
   /// Salva a lista de chamados atribuídos ao técnico em cache local
   Future<void> salvarChamadosTecnicoCache(List<Map<String, dynamic>> chamados) async {
-    await box.put('cached_tecnico_chamados', chamados);
-    debugPrint('[OfflineStorage] ${chamados.length} chamados do técnico salvos no cache local do Hive.');
+    try {
+      final safeBox = boxOrNull ?? await Hive.openBox(boxName);
+      await safeBox.put('cached_tecnico_chamados', chamados);
+      if (kDebugMode) {
+        debugPrint('[OfflineStorage] ${chamados.length} chamados do técnico salvos no cache local do Hive.');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[OfflineStorage] Erro ao salvar chamados do técnico: $e');
+      }
+    }
   }
 
   /// Recupera a lista em cache local dos chamados do técnico (para uso offline no chão de fábrica)
   List<Map<String, dynamic>> obterChamadosTecnicoCache() {
-    final cached = box.get('cached_tecnico_chamados');
-    if (cached != null && cached is List) {
-      return cached.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    try {
+      final safeBox = boxOrNull;
+      if (safeBox == null) return [];
+      final cached = safeBox.get('cached_tecnico_chamados');
+      if (cached != null && cached is List) {
+        return cached.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[OfflineStorage] Erro ao obter cache de chamados do técnico: $e');
+      }
     }
     return [];
   }
 
   /// Salva as anotações e fotos de documentação do chamado localmente no Hive
   Future<void> salvarDocumentacaoLocal(AtsDocumentacao doc) async {
-    await box.put('doc_${doc.chamadoId}', doc.toMap());
-    debugPrint('[OfflineStorage] Documentação do chamado ${doc.chamadoId} salva localmente.');
+    try {
+      final safeBox = boxOrNull ?? await Hive.openBox(boxName);
+      await safeBox.put('doc_${doc.chamadoId}', doc.toMap());
+      if (kDebugMode) {
+        debugPrint('[OfflineStorage] Documentação do chamado ${doc.chamadoId} salva localmente.');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[OfflineStorage] Erro ao salvar documentação local: $e');
+      }
+    }
   }
 
   /// Recupera as anotações e fotos de documentação do chamado do cache local do Hive
   AtsDocumentacao? obterDocumentacaoLocal(String chamadoId) {
-    final data = box.get('doc_$chamadoId');
-    if (data != null && data is Map) {
-      return AtsDocumentacao.fromMap(Map<String, dynamic>.from(data));
+    try {
+      final safeBox = boxOrNull;
+      if (safeBox == null) return null;
+      final data = safeBox.get('doc_$chamadoId');
+      if (data != null && data is Map) {
+        return AtsDocumentacao.fromMap(Map<String, dynamic>.from(data));
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[OfflineStorage] Erro ao obter documentação local: $e');
+      }
     }
     return null;
   }
 
   /// Salva lista de técnicos cadastrados no cache do Hive
   Future<void> salvarTecnicosCache(List<Map<String, dynamic>> tecnicos) async {
-    await box.put('cached_equipe_tecnicos', tecnicos);
-    debugPrint('[OfflineStorage] ${tecnicos.length} técnicos salvos no cache local.');
+    try {
+      final safeBox = boxOrNull ?? await Hive.openBox(boxName);
+      await safeBox.put('cached_equipe_tecnicos', tecnicos);
+      if (kDebugMode) {
+        debugPrint('[OfflineStorage] ${tecnicos.length} técnicos salvos no cache local.');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[OfflineStorage] Erro ao salvar técnicos em cache: $e');
+      }
+    }
   }
 
   /// Recupera a lista de técnicos do cache local do Hive
   List<Map<String, dynamic>> obterTecnicosCache() {
-    final cached = box.get('cached_equipe_tecnicos');
-    if (cached != null && cached is List) {
-      return cached.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    try {
+      final safeBox = boxOrNull;
+      if (safeBox == null) return [];
+      final cached = safeBox.get('cached_equipe_tecnicos');
+      if (cached != null && cached is List) {
+        return cached.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[OfflineStorage] Erro ao obter técnicos do cache: $e');
+      }
     }
     return [];
+  }
+
+  /// Persiste o perfil selecionado ('Gerente' ou 'Técnico') para sobreviver a F5 na Web
+  Future<void> salvarPerfilSelecionado(String role) async {
+    try {
+      final safeBox = boxOrNull ?? await Hive.openBox(boxName);
+      _box ??= safeBox;
+      await safeBox.put(_selectedRoleKey, role);
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[OfflineStorage] Erro ao salvar perfil selecionado: $e');
+      }
+    }
+  }
+
+  /// Recupera o último perfil selecionado ('Gerente' ou 'Técnico'), se existir
+  String? obterPerfilSelecionado() {
+    try {
+      final safeBox = boxOrNull;
+      if (safeBox == null) return null;
+      return safeBox.get(_selectedRoleKey)?.toString();
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[OfflineStorage] Erro ao obter perfil selecionado: $e');
+      }
+    }
+    return null;
   }
 }

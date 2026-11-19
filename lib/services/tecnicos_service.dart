@@ -6,20 +6,35 @@ import 'offline_storage_service.dart';
 
 /// Serviço para gerenciar a equipe de técnicos em campo
 class TecnicosService {
-  static final TecnicosService instance = TecnicosService._internal();
-  TecnicosService._internal() {
+  static TecnicosService? _instance;
+  static TecnicosService get instance => _instance ??= TecnicosService._internal();
+
+  /// Notifier com a lista reativa de técnicos inicializado de forma segura
+  final ValueNotifier<List<Tecnico>> tecnicosNotifier;
+
+  /// Flag que indica se o serviço concluiu a inicialização dos dados
+  bool _isInitialized = false;
+  bool get isInitialized => _isInitialized;
+
+  TecnicosService._internal()
+      : tecnicosNotifier = ValueNotifier<List<Tecnico>>([]) {
+    _isInitialized = true;
     _carregarDados();
   }
 
-  /// Notifier com a lista reativa de técnicos
-  final ValueNotifier<List<Tecnico>> tecnicosNotifier = ValueNotifier<List<Tecnico>>([]);
-
   void _carregarDados() {
-    // 1. Carrega estritamente os técnicos cadastrados pelo usuário no cache local
-    final cached = OfflineStorageService.instance.obterTecnicosCache();
-    if (cached.isNotEmpty) {
-      tecnicosNotifier.value = cached.map((m) => Tecnico.fromMap(m)).toList();
-    } else {
+    try {
+      // 1. Carrega estritamente os técnicos cadastrados pelo usuário no cache local
+      final cached = OfflineStorageService.instance.obterTecnicosCache();
+      if (cached.isNotEmpty) {
+        tecnicosNotifier.value = cached.map((m) => Tecnico.fromMap(m)).toList();
+      } else {
+        tecnicosNotifier.value = [];
+      }
+    } catch (e, stack) {
+      if (kDebugMode) {
+        debugPrint('[TecnicosService] Erro ao carregar dados do cache: $e\n$stack');
+      }
       tecnicosNotifier.value = [];
     }
   }
@@ -28,13 +43,15 @@ class TecnicosService {
   Future<Tecnico> adicionarTecnico({
     required String nome,
     required String telefone,
+    String? fone,
     String? email,
     String? especialidade,
   }) async {
+    final telFinal = telefone.trim().isNotEmpty ? telefone.trim() : (fone?.trim() ?? '');
     final novo = Tecnico(
       id: const Uuid().v4(),
       nome: nome.trim(),
-      telefone: telefone.trim(),
+      telefone: telFinal,
       email: email?.trim(),
       especialidade: especialidade?.trim(),
     );
@@ -52,11 +69,16 @@ class TecnicosService {
         'id': novo.id,
         'nome': novo.nome,
         'email': userEmail,
+        'telefone': novo.telefone,
         'perfil': 'tecnico',
       });
-      debugPrint('[TecnicosService] Técnico ${novo.nome} salvo remotamente no Supabase.');
-    } catch (e) {
-      debugPrint('[TecnicosService] Técnico salvo localmente (offline): $e');
+      if (kDebugMode) {
+        debugPrint('[TecnicosService] Técnico ${novo.nome} salvo remotamente no Supabase.');
+      }
+    } catch (e, stack) {
+      if (kDebugMode) {
+        debugPrint('[TecnicosService] Técnico salvo localmente (offline): $e\n$stack');
+      }
     }
 
     return novo;
@@ -77,27 +99,46 @@ class TecnicosService {
 
   /// Limpa toda a equipe técnica da simulação
   Future<void> limparTudo({bool limparRemoto = true}) async {
-    tecnicosNotifier.value = [];
-    await _salvarLocalmente();
-    if (limparRemoto) {
-      try {
-        await Supabase.instance.client
-            .from('usuarios')
-            .delete()
-            .eq('perfil', 'tecnico');
-        debugPrint('[TecnicosService] Técnicos remotos removidos com sucesso.');
-      } catch (e) {
-        debugPrint('[TecnicosService] Aviso ao limpar tecnicos remotos: $e');
+    try {
+      tecnicosNotifier.value = [];
+      await _salvarLocalmente();
+      if (limparRemoto) {
+        try {
+          await Supabase.instance.client
+              .from('usuarios')
+              .delete()
+              .eq('perfil', 'tecnico');
+          if (kDebugMode) {
+            debugPrint('[TecnicosService] Técnicos remotos removidos com sucesso.');
+          }
+        } catch (e, stack) {
+          if (kDebugMode) {
+            debugPrint('[TecnicosService] Aviso ao limpar tecnicos remotos: $e\n$stack');
+          }
+        }
+      }
+      if (kDebugMode) {
+        debugPrint('[TecnicosService] Equipe técnica limpa.');
+      }
+    } catch (e, stack) {
+      if (kDebugMode) {
+        debugPrint('[TecnicosService] Erro em limparTudo: $e\n$stack');
       }
     }
-    debugPrint('[TecnicosService] Equipe técnica limpa.');
   }
 
   Future<void> _salvarLocalmente() async {
-    final list = tecnicosNotifier.value.map((t) => t.toMap()).toList();
-    await OfflineStorageService.instance.salvarTecnicosCache(list);
+    try {
+      final list = tecnicosNotifier.value.map((t) => t.toMap()).toList();
+      await OfflineStorageService.instance.salvarTecnicosCache(list);
+    } catch (e, stack) {
+      if (kDebugMode) {
+        debugPrint('[TecnicosService] Erro ao salvar localmente: $e\n$stack');
+      }
+    }
   }
 
   /// Lista de nomes disponíveis para dropdowns de atribuição
-  List<String> get nomesTecnicos => tecnicosNotifier.value.map((t) => t.nome).toList();
+  List<String> get nomesTecnicos =>
+      tecnicosNotifier.value.map((t) => t.nome).where((n) => n.trim().isNotEmpty).toList();
 }

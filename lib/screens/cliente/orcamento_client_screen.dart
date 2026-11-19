@@ -42,6 +42,7 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
   bool _aprovadoComSucesso = false;
   bool _jaAprovadoPreviamente = false;
   Uint8List? _generatedPdfBytes;
+  String? _erroCarregamento;
 
   Chamado? _chamado;
 
@@ -76,30 +77,41 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
   Future<void> _carregarDadosChamado() async {
     setState(() {
       _isLoading = true;
+      _erroCarregamento = null;
     });
 
     try {
       Map<String, dynamic>? data;
+
+      // 1. Consulta primária segura via RPC SECURITY DEFINER (funciona mesmo para cliente anônimo)
       try {
-        final response = await Supabase.instance.client
-            .from('chamados')
-            .select()
-            .eq('token_url', widget.token)
-            .maybeSingle();
-        if (response != null) {
-          data = Map<String, dynamic>.from(response);
+        final rpcRes = await Supabase.instance.client
+            .rpc('obter_orcamento_por_token', params: {'p_token': widget.token});
+        if (rpcRes != null && rpcRes is Map) {
+          data = Map<String, dynamic>.from(rpcRes);
         }
-      } catch (directErr) {
+      } catch (rpcErr) {
         if (kDebugMode) {
-          debugPrint('[OrcamentoClientScreen] Consulta direta por token_url: $directErr');
+          debugPrint('[OrcamentoClientScreen] RPC obter_orcamento_por_token falhou: $rpcErr');
         }
+      }
+
+      // 2. Fallback para consulta direta caso a RPC retorne nulo ou não esteja disponível
+      if (data == null) {
         try {
-          final rpcRes = await Supabase.instance.client
-              .rpc('obter_orcamento_por_token', params: {'p_token': widget.token});
-          if (rpcRes != null && rpcRes is Map) {
-            data = Map<String, dynamic>.from(rpcRes);
+          final response = await Supabase.instance.client
+              .from('chamados')
+              .select()
+              .eq('token_url', widget.token)
+              .maybeSingle();
+          if (response != null) {
+            data = Map<String, dynamic>.from(response);
           }
-        } catch (_) {}
+        } catch (directErr) {
+          if (kDebugMode) {
+            debugPrint('[OrcamentoClientScreen] Consulta direta por token_url falhou: $directErr');
+          }
+        }
       }
 
       if (data != null) {
@@ -109,7 +121,10 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
         if (local != null) {
           _chamado = local;
         } else {
-          _chamado = _criarChamadoMock(widget.token);
+          _chamado = null;
+          _erroCarregamento =
+              'Orçamento não encontrado no servidor. Verifique se o link está correto ou solicite um novo link ao gerente.';
+          return;
         }
       }
 
@@ -130,9 +145,7 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
       _modeloController.text = _chamado?.modeloMaquina ?? '';
       _numeroSerieController.text = _chamado?.numeroSerie ?? '';
       _defeitoController.text = _chamado?.defeitoRelatado ?? '';
-      _razaoSocialController.text = (_chamado?.razaoSocial != null && !_chamado!.razaoSocial.startsWith('mock-'))
-          ? _chamado!.razaoSocial
-          : '';
+      _razaoSocialController.text = _chamado?.razaoSocial ?? '';
       _cnpjController.text = _chamado?.cnpj ?? '';
       _inscricaoEstadualController.text = _chamado?.inscricaoEstadual ?? '';
       _enderecoController.text = _chamado?.endereco ?? '';
@@ -143,7 +156,9 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
       if (kDebugMode) {
         debugPrint('[OrcamentoClient] Erro ao carregar chamado/orçamento via token: $e\n$stackTrace');
       }
-      _chamado = _criarChamadoMock(widget.token);
+      _chamado = null;
+      _erroCarregamento =
+          'Não foi possível carregar o orçamento. Verifique sua conexão e tente novamente.';
     } finally {
       if (mounted) {
         setState(() {
@@ -151,33 +166,6 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
         });
       }
     }
-  }
-
-  Chamado _criarChamadoMock(String token) {
-    return Chamado(
-      id: 'mock-uuid-001',
-      numeroAts: '014742',
-      razaoSocial: '',
-      cnpj: null,
-      inscricaoEstadual: null,
-      telefone: null,
-      clienteEmail: null,
-      endereco: null,
-      cidade: null,
-      fabricante: '',
-      modeloMaquina: '',
-      numeroSerie: '',
-      defeitoRelatado: '',
-      tokenUrl: token,
-      status: ChamadoStatus.orcamentoEnviado,
-      taxaHorariaComercial: 306.00,
-      taxaHorariaExtra: 459.00,
-      taxaHorariaEspecial: 612.00,
-      taxaKm: 3.20,
-      kmEstimado: 45.0,
-      horaViagemEstimada: 1.0,
-      valorEstimadoTotal: 1850.00,
-    );
   }
 
   void _mostrarLoadingModal() {
@@ -385,6 +373,128 @@ class _OrcamentoClientScreenState extends State<OrcamentoClientScreen> {
         backgroundColor: const Color(0xFFF8FAFC),
         body: Center(
           child: CircularProgressIndicator(color: themeColor),
+        ),
+      );
+    }
+
+    if (_erroCarregamento != null || _chamado == null) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF1F5F9),
+        appBar: AppBar(
+          backgroundColor: Colors.white,
+          elevation: 1,
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.grey.shade200),
+                ),
+                child: Image.asset(
+                  'assets/images/logo_pmach.png',
+                  height: 32,
+                  width: 32,
+                  fit: BoxFit.contain,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'ATS Serviços',
+                    style: TextStyle(
+                      color: Color(0xFF0C1A30),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                      height: 1.1,
+                    ),
+                  ),
+                  Text(
+                    'Equipamentos e Peças Ltda',
+                    style: TextStyle(
+                      color: Color(0xFF64748B),
+                      fontWeight: FontWeight.w500,
+                      fontSize: 10,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 460),
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.04),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.link_off_rounded,
+                      size: 48,
+                      color: Color(0xFFEF4444),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Orçamento indisponível',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _erroCarregamento ??
+                          'Orçamento não encontrado no servidor. Verifique se o link está correto ou solicite um novo link ao gerente.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Color(0xFF475569),
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    ElevatedButton.icon(
+                      onPressed: _carregarDadosChamado,
+                      icon: const Icon(Icons.refresh_rounded, size: 18),
+                      label: const Text('Tentar Novamente'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: themeColor,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ),
       );
     }

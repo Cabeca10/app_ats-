@@ -3,6 +3,7 @@ class Tecnico {
   final String id;
   final String nome;
   final String telefone;
+  String get fone => telefone;
   final String? email;
   final String? especialidade;
   final DateTime createdAt;
@@ -21,6 +22,7 @@ class Tecnico {
       'id': id,
       'nome': nome,
       'telefone': telefone,
+      'fone': telefone,
       if (email != null) 'email': email,
       if (especialidade != null) 'especialidade': especialidade,
       'created_at': createdAt.toIso8601String(),
@@ -31,12 +33,14 @@ class Tecnico {
     return Tecnico(
       id: map['id']?.toString() ?? '',
       nome: map['nome']?.toString() ?? '',
-      telefone: map['telefone']?.toString() ?? '',
+      telefone: (map['telefone'] ?? map['fone'])?.toString() ?? '',
       email: map['email']?.toString(),
       especialidade: map['especialidade']?.toString(),
       createdAt: map['created_at'] != null
-          ? DateTime.tryParse(map['created_at'].toString()) ?? DateTime.now()
-          : DateTime.now(),
+          ? (DateTime.tryParse(map['created_at'].toString()) ?? DateTime.now())
+          : (map['criado_em'] != null
+              ? (DateTime.tryParse(map['criado_em'].toString()) ?? DateTime.now())
+              : DateTime.now()),
     );
   }
 }

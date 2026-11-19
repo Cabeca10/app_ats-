@@ -7,7 +7,6 @@ import 'screens/gerente/gerente_dashboard.dart';
 import 'screens/cliente/orcamento_client_screen.dart';
 import 'services/offline_storage_service.dart';
 import 'services/chamados_service.dart';
-import 'services/tecnicos_service.dart';
 export 'utils/url_helper.dart' show kAppBaseUrl;
 
 // ============================================================================
@@ -35,12 +34,13 @@ Future<void> main() async {
   // 1. Inicializa o Hive para persistência offline-first
   await OfflineStorageService.instance.init();
 
-  // 1.1 Limpa o armazenamento local para permitir simulação limpa
-  await OfflineStorageService.instance.limparTudo();
-  await ChamadosService.instance.limparTudo();
-  await TecnicosService.instance.limparTudo();
+  // 1.1 Restaura o último perfil selecionado ('Gerente' ou 'Técnico') antes da renderização
+  final savedRole = OfflineStorageService.instance.obterPerfilSelecionado();
+  if (savedRole == 'Gerente' || savedRole == 'Técnico') {
+    AppAuthState.selectedRole = savedRole!;
+  }
 
-  // 2. Inicializa o Supabase com estrita anon_key pública
+  // 2. Inicializa o Supabase com estrita anon_key pública ANTES de qualquer serviço
   try {
     await Supabase.initialize(
       url: kSupabaseUrl,
@@ -148,19 +148,36 @@ class _AuthWrapperState extends State<AuthWrapper> {
     super.initState();
     _session = Supabase.instance.client.auth.currentSession;
     if (_session?.user != null) {
-      _resolverPerfilAutomatico(_session!.user);
+      _inicializarSessao(_session!.user);
+    } else {
+      _initialCheckDone = true;
     }
-    _initialCheckDone = true;
     _authSubscription = Supabase.instance.client.auth.onAuthStateChange.listen((
       data,
     ) {
-      setState(() {
-        _session = data.session;
-      });
+      if (mounted) {
+        setState(() {
+          _session = data.session;
+        });
+      }
       if (data.session?.user != null) {
         _resolverPerfilAutomatico(data.session!.user);
+        ChamadosService.instance.inicializarESincronizar();
       }
     });
+  }
+
+  Future<void> _inicializarSessao(User user) async {
+    try {
+      await _resolverPerfilAutomatico(user);
+      ChamadosService.instance.inicializarESincronizar();
+    } finally {
+      if (mounted) {
+        setState(() {
+          _initialCheckDone = true;
+        });
+      }
+    }
   }
 
   Future<void> _resolverPerfilAutomatico(User user) async {
@@ -179,24 +196,30 @@ class _AuthWrapperState extends State<AuthWrapper> {
       } catch (_) {}
     }
 
-    if (role != null && mounted) {
+    if (role != null) {
       final normalizedRole = role.toLowerCase().trim();
       AppAuthState.currentUserRole = normalizedRole;
 
       final String novoRole;
       if (normalizedRole == 'gerente_tecnico') {
-        // Perfil híbrido: mantém a aba selecionada pelo usuário (Gerente ou Técnico)
-        novoRole = (AppAuthState.selectedRole == 'Gerente') ? 'Gerente' : 'Técnico';
+        // Perfil híbrido: mantém a aba selecionada pelo usuário (persistida no Hive)
+        final rolePersistida = OfflineStorageService.instance.obterPerfilSelecionado();
+        final efetiva = rolePersistida ?? AppAuthState.selectedRole;
+        novoRole = (efetiva == 'Gerente') ? 'Gerente' : 'Técnico';
       } else if (normalizedRole == 'gerente') {
         novoRole = 'Gerente';
       } else {
         novoRole = 'Técnico';
       }
 
-      if (AppAuthState.selectedRole != novoRole) {
+      await OfflineStorageService.instance.salvarPerfilSelecionado(novoRole);
+
+      if (mounted && AppAuthState.selectedRole != novoRole) {
         setState(() {
           AppAuthState.selectedRole = novoRole;
         });
+      } else {
+        AppAuthState.selectedRole = novoRole;
       }
     }
   }
