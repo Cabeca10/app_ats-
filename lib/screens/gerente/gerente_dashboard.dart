@@ -33,6 +33,7 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
   String _buscaTexto = '';
   String? _enviandoEmailChamadoId;
   String? _abrindoPdfChamadoId;
+  String? _excluindoChamadoId;
   final _dateFormat = DateFormat('dd/MM/yyyy HH:mm');
 
   List<String> get _tecnicosDisponiveis => TecnicosService.instance.nomesTecnicos;
@@ -389,7 +390,8 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
               c.numeroAts.toLowerCase().contains(_buscaTexto.toLowerCase()) ||
               c.razaoSocial.toLowerCase().contains(_buscaTexto.toLowerCase()) ||
               (c.modeloMaquina ?? '').toLowerCase().contains(_buscaTexto.toLowerCase()) ||
-              (c.tecnicoNome ?? '').toLowerCase().contains(_buscaTexto.toLowerCase());
+              (c.tecnicoNome ?? '').toLowerCase().contains(_buscaTexto.toLowerCase()) ||
+              (c.tecnico2Nome ?? '').toLowerCase().contains(_buscaTexto.toLowerCase());
 
           if (!matchesBusca) return false;
 
@@ -519,6 +521,7 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                               DataColumn(label: Text('Abertura', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
                               DataColumn(label: Text('Ações', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
                               DataColumn(label: Text('Pdf Aprovado', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                              DataColumn(label: Text('Excluir', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
                             ],
                             rows: chamados.map((c) {
                               final temPdfAprovado =
@@ -706,6 +709,33 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                                         : const Text(
                                             'Aguardando',
                                             style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                                          ),
+                                  ),
+                                  DataCell(
+                                    _excluindoChamadoId == c.id
+                                        ? const SizedBox(
+                                            width: 36,
+                                            child: Center(
+                                              child: SizedBox(
+                                                width: 18,
+                                                height: 18,
+                                                child: CircularProgressIndicator(
+                                                  strokeWidth: 2,
+                                                  color: Color(0xFFDC2626),
+                                                ),
+                                              ),
+                                            ),
+                                          )
+                                        : IconButton(
+                                            icon: const Icon(
+                                              Icons.delete_outline_rounded,
+                                              size: 20,
+                                              color: Color(0xFFDC2626),
+                                            ),
+                                            tooltip: 'Excluir chamado permanentemente',
+                                            onPressed: _excluindoChamadoId != null
+                                                ? null
+                                                : () => _confirmarExclusaoChamado(context, c),
                                           ),
                                   ),
                                 ],
@@ -900,6 +930,118 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
     } finally {
       if (mounted) {
         setState(() => _abrindoPdfChamadoId = null);
+      }
+    }
+  }
+
+  Future<void> _confirmarExclusaoChamado(BuildContext context, Chamado chamado) async {
+    final atsLabel = chamado.numeroAts.toUpperCase().startsWith('ATS-')
+        ? chamado.numeroAts
+        : 'ATS-${chamado.numeroAts}';
+    final tecnicosVinculados = [
+      if (chamado.tecnicoNome != null && chamado.tecnicoNome!.trim().isNotEmpty)
+        chamado.tecnicoNome!.trim(),
+      if (chamado.tecnico2Nome != null && chamado.tecnico2Nome!.trim().isNotEmpty)
+        chamado.tecnico2Nome!.trim(),
+    ];
+
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        title: const Row(
+          children: [
+            Icon(Icons.delete_forever_rounded, color: Color(0xFFDC2626), size: 26),
+            SizedBox(width: 8),
+            Text('Excluir Chamado?', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: SizedBox(
+          width: 440,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Deseja apagar definitivamente o chamado $atsLabel?',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0F172A)),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Cliente: ${chamado.razaoSocial}',
+                style: const TextStyle(fontSize: 13, color: Color(0xFF475569)),
+              ),
+              const SizedBox(height: 12),
+              if (tecnicosVinculados.isNotEmpty) ...[
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF2F2),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFFCA5A5)),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626), size: 18),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Este chamado está vinculado a: ${tecnicosVinculados.join(", ")}. Ao apagar, ele também será removido da tela do(s) técnico(s), junto com todos os registros vinculados e PDFs aprovados.',
+                          style: const TextStyle(fontSize: 12, color: Color(0xFF991B1B), fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ] else ...[
+                const Text(
+                  'Esta ação apagará permanentemente o chamado, registros vinculados e PDFs aprovados do sistema e não pode ser desfeita.',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogCtx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Apagar Definitivamente'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar != true || !mounted) return;
+
+    setState(() => _excluindoChamadoId = chamado.id);
+    try {
+      final sucesso = await ChamadosService.instance.excluirChamado(chamado);
+      if (mounted) {
+        ScaffoldMessenger.of(this.context).showSnackBar(
+          SnackBar(
+            content: Text(
+              sucesso
+                  ? 'Chamado $atsLabel excluído definitivamente.'
+                  : (ChamadosService.instance.syncErrorNotifier.value ??
+                      'Erro ao excluir o chamado $atsLabel.'),
+            ),
+            backgroundColor: sucesso ? const Color(0xFF10B981) : const Color(0xFFDC2626),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _excluindoChamadoId = null);
       }
     }
   }
@@ -1215,7 +1357,13 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                     itemCount: tecnicos.length,
                     itemBuilder: (context, index) {
                       final tec = tecnicos[index];
-                      final chamadosDoTecnico = chamados.where((c) => c.tecnicoNome == tec.nome || c.tecnicoId == tec.id).toList();
+                      final chamadosDoTecnico = chamados
+                          .where((c) =>
+                              c.tecnicoNome == tec.nome ||
+                              c.tecnicoId == tec.id ||
+                              c.tecnico2Nome == tec.nome ||
+                              c.tecnico2Id == tec.id)
+                          .toList();
                       final emAndamento = chamadosDoTecnico.where((c) => c.status != ChamadoStatus.finalizado).length;
 
                       return Card(

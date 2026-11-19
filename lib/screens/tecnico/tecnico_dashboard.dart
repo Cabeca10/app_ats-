@@ -61,6 +61,8 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
   @override
   void initState() {
     super.initState();
+    ChamadosService.instance.inicializarESincronizar();
+    ChamadosService.instance.realtimeTickNotifier.addListener(_onRealtimeAtualizacao);
     _carregarChamadosDoTecnico();
     _connectivitySub = Connectivity().onConnectivityChanged.listen((results) {
       final isOffline = results.contains(ConnectivityResult.none) || results.isEmpty;
@@ -75,8 +77,15 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
     });
   }
 
+  void _onRealtimeAtualizacao() {
+    if (mounted && _isOnline) {
+      _carregarChamadosDoTecnico();
+    }
+  }
+
   @override
   void dispose() {
+    ChamadosService.instance.realtimeTickNotifier.removeListener(_onRealtimeAtualizacao);
     _connectivitySub.cancel();
     super.dispose();
   }

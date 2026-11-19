@@ -21,6 +21,9 @@ class ChamadosService {
   /// Notifier para propagar avisos de falhas de sincronização/rede para a interface
   final ValueNotifier<String?> syncErrorNotifier = ValueNotifier<String?>(null);
 
+  /// Incrementado a cada evento Realtime ou exclusão para atualizar telas auxiliares (ex: TecnicoDashboard)
+  final ValueNotifier<int> realtimeTickNotifier = ValueNotifier<int>(0);
+
   RealtimeChannel? _realtimeChannel;
   bool _realtimeAtivo = false;
 
@@ -45,7 +48,9 @@ class ChamadosService {
               if (kDebugMode) {
                 debugPrint('[ChamadosService] Realtime: alteração na tabela chamados (${payload.eventType})');
               }
-              _sincronizarComSupabase();
+              _sincronizarComSupabase().then((_) {
+                realtimeTickNotifier.value++;
+              });
             },
           )
           .subscribe();
@@ -573,5 +578,105 @@ class ChamadosService {
     }
 
     return false;
+  }
+
+  String? _extrairStoragePathOrcamentos(String? url) {
+    if (url == null || url.trim().isEmpty || url.contains('storage.local')) {
+      return null;
+    }
+    const marker = '/orcamentos/';
+    if (!url.contains(marker)) return null;
+    var path = url.split(marker).last;
+    path = path.split('?').first;
+    try {
+      path = Uri.decodeFull(path);
+    } catch (_) {}
+    path = path.replaceFirst(RegExp(r'^/+'), '').trim();
+    return path.isEmpty ? null : path;
+  }
+
+  /// Exclui permanentemente um chamado do Supabase (incluindo registros vinculados via CASCADE),
+  /// limpa arquivos no Storage ('orcamentos') e remove do estado reativo e cache local Hive.
+  Future<bool> excluirChamado(Chamado chamado) async {
+    if (!chamado.pendingSync) {
+      final client = Supabase.instance.client;
+
+      // 1. Limpeza best-effort de arquivos no Supabase Storage (nunca bloqueia a exclusão do banco)
+      try {
+        final paths = <String>{};
+        final pdfStoragePath = _extrairStoragePathOrcamentos(chamado.orcamentoPdfUrl);
+        if (pdfStoragePath != null) paths.add(pdfStoragePath);
+
+        final sigStoragePath = _extrairStoragePathOrcamentos(chamado.assinaturaUrl);
+        if (sigStoragePath != null) paths.add(sigStoragePath);
+
+        if (chamado.tokenUrl.trim().isNotEmpty) {
+          paths.add('assinaturas/assinatura_${chamado.tokenUrl}.png');
+        }
+        if (chamado.numeroAts.trim().isNotEmpty) {
+          final cleanNumeroAts = chamado.numeroAts.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+          paths.add('pdfs/proposta_$cleanNumeroAts.pdf');
+        }
+
+        try {
+          final docFiles = await client.storage.from('orcamentos').list(path: 'documentacoes');
+          final prefix = '${chamado.id}_';
+          for (final file in docFiles) {
+            if (file.name.startsWith(prefix)) {
+              paths.add('documentacoes/${file.name}');
+            }
+          }
+        } catch (listErr) {
+          if (kDebugMode) {
+            debugPrint('[ChamadosService] Aviso ao listar documentações no Storage: $listErr');
+          }
+        }
+
+        if (paths.isNotEmpty) {
+          await client.storage.from('orcamentos').remove(paths.toList());
+        }
+      } catch (storageErr) {
+        if (kDebugMode) {
+          debugPrint('[ChamadosService] Aviso ao remover arquivos do Storage: $storageErr');
+        }
+      }
+
+      // 2. Exclusão verificada da tabela 'chamados' (FK CASCADE apaga apontamentos, logs e documentações)
+      try {
+        final deleted = await client
+            .from('chamados')
+            .delete()
+            .eq('id', chamado.id)
+            .select('id');
+        if (deleted.isEmpty) {
+          final stillExists = await client
+              .from('chamados')
+              .select('id')
+              .eq('id', chamado.id)
+              .maybeSingle();
+          if (stillExists != null) {
+            syncErrorNotifier.value =
+                'Não foi possível excluir o chamado no servidor (permissão negada).';
+            return false;
+          }
+        }
+      } catch (e, stack) {
+        if (kDebugMode) {
+          debugPrint('[ChamadosService] Erro ao excluir chamado no Supabase: $e\n$stack');
+        }
+        syncErrorNotifier.value = 'Erro ao excluir chamado no servidor: $e';
+        return false;
+      }
+    }
+
+    // 3. Atualiza lista reativa e remove completamente do cache offline Hive
+    chamadosNotifier.value = chamadosNotifier.value.where((c) => c.id != chamado.id).toList();
+    await OfflineStorageService.instance.removerChamadoCompletamente(
+      chamado.id,
+      numeroAts: chamado.numeroAts,
+    );
+    syncErrorNotifier.value = null;
+    realtimeTickNotifier.value++;
+    return true;
   }
 }

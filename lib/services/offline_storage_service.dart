@@ -150,6 +150,58 @@ class OfflineStorageService {
     }
   }
 
+  /// Remove completamente um chamado, suas documentações e referências do cache local do técnico
+  Future<void> removerChamadoCompletamente(
+    String chamadoId, {
+    String? numeroAts,
+  }) async {
+    try {
+      final safeBox = boxOrNull;
+      if (safeBox == null) return;
+
+      await safeBox.delete(chamadoId);
+      await safeBox.delete('doc_$chamadoId');
+
+      String? rawAts;
+      String? cleanAts;
+      if (numeroAts != null && numeroAts.trim().isNotEmpty) {
+        rawAts = numeroAts.trim();
+        cleanAts = rawAts.replaceAll('ATS-', '').trim();
+        await safeBox.delete(rawAts);
+        await safeBox.delete(cleanAts);
+        await safeBox.delete('ATS-$cleanAts');
+      }
+
+      final cached = safeBox.get('cached_tecnico_chamados');
+      if (cached is List) {
+        final filtrada = cached.where((item) {
+          if (item is! Map) return true;
+          final idItem = item['id']?.toString();
+          if (idItem == chamadoId) return false;
+          if (cleanAts != null && cleanAts.isNotEmpty) {
+            final atsItem = item['numero_ats']?.toString().trim();
+            if (atsItem != null &&
+                (atsItem == rawAts ||
+                    atsItem == cleanAts ||
+                    atsItem.replaceAll('ATS-', '').trim() == cleanAts)) {
+              return false;
+            }
+          }
+          return true;
+        }).toList();
+        await safeBox.put('cached_tecnico_chamados', filtrada);
+      }
+
+      if (kDebugMode) {
+        debugPrint('[OfflineStorage] Chamado $chamadoId removido completamente do cache Hive.');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[OfflineStorage] Erro ao remover chamado completamente ($chamadoId): $e');
+      }
+    }
+  }
+
   /// Salva a lista de chamados atribuídos ao técnico em cache local
   Future<void> salvarChamadosTecnicoCache(List<Map<String, dynamic>> chamados) async {
     try {
