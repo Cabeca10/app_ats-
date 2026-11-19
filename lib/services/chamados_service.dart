@@ -226,11 +226,13 @@ class ChamadosService {
     return null;
   }
 
-  /// Atribui o técnico ao chamado, alterando o status para 'atribuido'
+  /// Atribui os técnicos ao chamado, alterando o status para 'atribuido'
   Future<bool> atribuirTecnico({
     required String chamadoId,
     required String tecnicoNome,
     String? tecnicoId,
+    String? tecnico2Nome,
+    String? tecnico2Id,
   }) async {
     bool remotoAtualizado = false;
     try {
@@ -239,6 +241,8 @@ class ChamadosService {
         'status': ChamadoStatus.atribuido,
         'tecnico_nome': tecnicoNome,
         'tecnico_id': tecnicoId,
+        'tecnico2_nome': tecnico2Nome,
+        'tecnico2_id': tecnico2Id,
         'updated_at': DateTime.now().toIso8601String(),
       }).eq('id', chamadoId);
       remotoAtualizado = true;
@@ -260,6 +264,8 @@ class ChamadosService {
           status: ChamadoStatus.atribuido,
           tecnicoNome: tecnicoNome,
           tecnicoId: tecnicoId ?? listaAtual[index].tecnicoId,
+          tecnico2Nome: tecnico2Nome,
+          tecnico2Id: tecnico2Id ?? listaAtual[index].tecnico2Id,
           pendingSync: !remotoAtualizado,
           updatedAt: DateTime.now(),
         );

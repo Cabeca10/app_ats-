@@ -513,8 +513,9 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                               DataColumn(label: Text('ATS Nº', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
                               DataColumn(label: Text('Cliente / Razão Social', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
                               DataColumn(label: Text('Máquina / Equipamento', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
-                              DataColumn(label: Text('Técnico Responsável', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
                               DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                              DataColumn(label: Text('Técnico 1', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                              DataColumn(label: Text('Técnico 2', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
                               DataColumn(label: Text('Abertura', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
                               DataColumn(label: Text('Ações', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
                               DataColumn(label: Text('Pdf Aprovado', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
@@ -541,28 +542,49 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                                   DataCell(
                                     Text(c.modeloMaquina ?? 'Em levantamento', style: const TextStyle(fontSize: 12)),
                                   ),
+                                  DataCell(_buildStatusBadge(c.status)),
                                   DataCell(
                                     Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
                                         Icon(
-                                          c.tecnicoNome != null ? Icons.person : Icons.person_outline,
+                                          (c.tecnicoNome != null && c.tecnicoNome!.trim().isNotEmpty) ? Icons.person : Icons.person_outline,
                                           size: 16,
-                                          color: c.tecnicoNome != null ? const Color(0xFF0A369D) : Colors.grey,
+                                          color: (c.tecnicoNome != null && c.tecnicoNome!.trim().isNotEmpty) ? const Color(0xFF0A369D) : Colors.grey,
                                         ),
                                         const SizedBox(width: 6),
                                         Text(
-                                          c.tecnicoNome ?? 'Não atribuído',
+                                          (c.tecnicoNome != null && c.tecnicoNome!.trim().isNotEmpty) ? c.tecnicoNome! : 'Não atribuído',
                                           style: TextStyle(
                                             fontSize: 12,
-                                            fontWeight: c.tecnicoNome != null ? FontWeight.bold : FontWeight.normal,
-                                            color: c.tecnicoNome != null ? const Color(0xFF1E293B) : const Color(0xFF94A3B8),
+                                            fontWeight: (c.tecnicoNome != null && c.tecnicoNome!.trim().isNotEmpty) ? FontWeight.bold : FontWeight.normal,
+                                            color: (c.tecnicoNome != null && c.tecnicoNome!.trim().isNotEmpty) ? const Color(0xFF1E293B) : const Color(0xFF94A3B8),
                                           ),
                                         ),
                                       ],
                                     ),
                                   ),
-                                  DataCell(_buildStatusBadge(c.status)),
+                                  DataCell(
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          (c.tecnico2Nome != null && c.tecnico2Nome!.trim().isNotEmpty) ? Icons.person : Icons.person_outline,
+                                          size: 16,
+                                          color: (c.tecnico2Nome != null && c.tecnico2Nome!.trim().isNotEmpty) ? const Color(0xFF0A369D) : Colors.grey,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          (c.tecnico2Nome != null && c.tecnico2Nome!.trim().isNotEmpty) ? c.tecnico2Nome! : 'Não atribuído',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: (c.tecnico2Nome != null && c.tecnico2Nome!.trim().isNotEmpty) ? FontWeight.bold : FontWeight.normal,
+                                            color: (c.tecnico2Nome != null && c.tecnico2Nome!.trim().isNotEmpty) ? const Color(0xFF1E293B) : const Color(0xFF94A3B8),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                   DataCell(
                                     Text(_dateFormat.format(c.createdAt), style: const TextStyle(fontSize: 11, color: Color(0xFF64748B))),
                                   ),
@@ -1628,7 +1650,10 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
       return;
     }
 
-    String tecnicoSelecionado = chamado.tecnicoNome ?? _tecnicosDisponiveis.first;
+    String tecnico1Selecionado = chamado.tecnicoNome ?? _tecnicosDisponiveis.first;
+    String tecnico2Selecionado = (chamado.tecnico2Nome != null && chamado.tecnico2Nome!.trim().isNotEmpty)
+        ? chamado.tecnico2Nome!
+        : 'Nenhum';
 
     showDialog(
       context: context,
@@ -1637,45 +1662,78 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
           builder: (ctx, setDialogState) {
             return AlertDialog(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              title: Text('Atribuir Técnico - ATS Nº ${chamado.numeroAts}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Cliente: ${chamado.razaoSocial}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                  const SizedBox(height: 4),
-                  Text('Máquina: ${chamado.modeloMaquina ?? "N/A"}', style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
-                  const SizedBox(height: 16),
-                  DropdownButtonFormField<String>(
-                    value: tecnicoSelecionado,
-                    decoration: InputDecoration(
-                      labelText: 'Selecione o Técnico',
-                      filled: true,
-                      fillColor: const Color(0xFFF8FAFC),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              title: Text('Atribuir Técnicos - ATS Nº ${chamado.numeroAts}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              content: SizedBox(
+                width: 420,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Cliente: ${chamado.razaoSocial}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    const SizedBox(height: 4),
+                    Text('Máquina: ${chamado.modeloMaquina ?? "N/A"}', style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<String>(
+                      value: _tecnicosDisponiveis.contains(tecnico1Selecionado)
+                          ? tecnico1Selecionado
+                          : _tecnicosDisponiveis.first,
+                      decoration: InputDecoration(
+                        labelText: 'Técnico 1 (Principal)',
+                        filled: true,
+                        fillColor: const Color(0xFFF8FAFC),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      items: _tecnicosDisponiveis.map((t) {
+                        return DropdownMenuItem(value: t, child: Text(t));
+                      }).toList(),
+                      onChanged: (val) {
+                        if (val != null) setDialogState(() => tecnico1Selecionado = val);
+                      },
                     ),
-                    items: _tecnicosDisponiveis.map((t) {
-                      return DropdownMenuItem(value: t, child: Text(t));
-                    }).toList(),
-                    onChanged: (val) {
-                      if (val != null) setDialogState(() => tecnicoSelecionado = val);
-                    },
-                  ),
-                ],
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: (_tecnicosDisponiveis.contains(tecnico2Selecionado) || tecnico2Selecionado == 'Nenhum')
+                          ? tecnico2Selecionado
+                          : 'Nenhum',
+                      decoration: InputDecoration(
+                        labelText: 'Técnico 2 (Auxiliar - Opcional)',
+                        filled: true,
+                        fillColor: const Color(0xFFF8FAFC),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      items: [
+                        const DropdownMenuItem(value: 'Nenhum', child: Text('Nenhum (Apenas 1 técnico)')),
+                        ..._tecnicosDisponiveis.map((t) {
+                          return DropdownMenuItem(value: t, child: Text(t));
+                        }),
+                      ],
+                      onChanged: (val) {
+                        if (val != null) setDialogState(() => tecnico2Selecionado = val);
+                      },
+                    ),
+                  ],
+                ),
               ),
               actions: [
                 TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancelar')),
                 ElevatedButton(
                   onPressed: () async {
                     Navigator.pop(dialogCtx);
+                    final tec2 = (tecnico2Selecionado != 'Nenhum' && tecnico2Selecionado.trim().isNotEmpty)
+                        ? tecnico2Selecionado.trim()
+                        : null;
                     await ChamadosService.instance.atribuirTecnico(
                       chamadoId: chamado.id,
-                      tecnicoNome: tecnicoSelecionado,
+                      tecnicoNome: tecnico1Selecionado,
+                      tecnico2Nome: tec2,
                     );
                     if (context.mounted) {
+                      final msg = tec2 != null
+                          ? 'Técnicos $tecnico1Selecionado e $tec2 atribuídos à ATS Nº ${chamado.numeroAts}!'
+                          : 'Técnico $tecnico1Selecionado atribuído à ATS Nº ${chamado.numeroAts}!';
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          content: Text('Técnico $tecnicoSelecionado atribuído à ATS Nº ${chamado.numeroAts}!'),
+                          content: Text(msg),
                           backgroundColor: const Color(0xFF10B981),
                           behavior: SnackBarBehavior.floating,
                         ),

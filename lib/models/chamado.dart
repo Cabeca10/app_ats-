@@ -40,7 +40,7 @@ class Chamado {
 
   /// Projeção completa para detalhes do chamado
   static const String selectColumnsCompletas = 
-      'id, numero_ats, razao_social, cnpj, inscricao_estadual, telefone, cliente_email, email_cliente, endereco, cidade, contato, tipo_atendimento, fabricante, modelo_maquina, numero_serie, defeito_relatado, servico_executado, token_url, status, taxa_horaria_comercial, taxa_horaria_extra, taxa_horaria_especial, taxa_km, km_estimado, hora_viagem_estimada, valor_estimado_total, termos_aceitos, aceite_data, responsavel_aceite_nome, responsavel_aceite_cargo, assinatura_url, orcamento_pdf_url, tecnico_id, tecnico_nome, created_at, updated_at';
+      'id, numero_ats, razao_social, cnpj, inscricao_estadual, telefone, cliente_email, email_cliente, endereco, cidade, contato, tipo_atendimento, fabricante, modelo_maquina, numero_serie, defeito_relatado, servico_executado, token_url, status, taxa_horaria_comercial, taxa_horaria_extra, taxa_horaria_especial, taxa_km, km_estimado, hora_viagem_estimada, valor_estimado_total, termos_aceitos, aceite_data, responsavel_aceite_nome, responsavel_aceite_cargo, assinatura_url, orcamento_pdf_url, tecnico_id, tecnico_nome, tecnico2_id, tecnico2_nome, created_at, updated_at';
 
   final String id;
   final String numeroAts;
@@ -97,6 +97,8 @@ class Chamado {
   // Técnico Atribuído
   final String? tecnicoId;
   final String? tecnicoNome;
+  final String? tecnico2Id;
+  final String? tecnico2Nome;
 
   // Dias de Trabalho / Apontamentos no ATS
   final List<DiaTrabalho> diasTrabalho;
@@ -147,6 +149,8 @@ class Chamado {
     this.pendingSync = false,
     this.tecnicoId,
     this.tecnicoNome,
+    this.tecnico2Id,
+    this.tecnico2Nome,
     this.diasTrabalho = const [],
     DateTime? createdAt,
     DateTime? criadoEm,
@@ -197,6 +201,8 @@ class Chamado {
     bool? pendingSync,
     String? tecnicoId,
     String? tecnicoNome,
+    String? tecnico2Id,
+    String? tecnico2Nome,
     List<DiaTrabalho>? diasTrabalho,
     DateTime? createdAt,
     DateTime? criadoEm,
@@ -240,6 +246,8 @@ class Chamado {
       pendingSync: pendingSync ?? this.pendingSync,
       tecnicoId: tecnicoId ?? this.tecnicoId,
       tecnicoNome: tecnicoNome ?? this.tecnicoNome,
+      tecnico2Id: tecnico2Id ?? this.tecnico2Id,
+      tecnico2Nome: tecnico2Nome ?? this.tecnico2Nome,
       diasTrabalho: diasTrabalho ?? this.diasTrabalho,
       createdAt: createdAt ?? criadoEm ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -288,6 +296,8 @@ class Chamado {
       'pending_sync': pendingSync,
       'tecnico_id': tecnicoId,
       'tecnico_nome': tecnicoNome,
+      'tecnico2_id': tecnico2Id,
+      'tecnico2_nome': tecnico2Nome,
       'dias_trabalho': diasTrabalho.map((d) => d.toMap()).toList(),
       'created_at': createdAt.toIso8601String(),
       'criado_em': createdAt.toIso8601String(),
@@ -335,6 +345,8 @@ class Chamado {
       'pdf_url': orcamentoPdfUrl,
       'tecnico_id': tecnicoId,
       'tecnico_nome': tecnicoNome,
+      'tecnico2_id': tecnico2Id,
+      'tecnico2_nome': tecnico2Nome,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt?.toIso8601String(),
     };
@@ -379,6 +391,8 @@ class Chamado {
       pendingSync: map['pending_sync'] == true,
       tecnicoId: map['tecnico_id']?.toString(),
       tecnicoNome: map['tecnico_nome']?.toString(),
+      tecnico2Id: map['tecnico2_id']?.toString(),
+      tecnico2Nome: map['tecnico2_nome']?.toString(),
       diasTrabalho: map['dias_trabalho'] != null
           ? (map['dias_trabalho'] as List)
               .map((item) => DiaTrabalho.fromMap(Map<String, dynamic>.from(item as Map)))

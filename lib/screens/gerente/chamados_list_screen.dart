@@ -379,7 +379,9 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
                   const Icon(Icons.person, size: 14, color: Color(0xFF2563EB)),
                   const SizedBox(width: 4),
                   Text(
-                    'Técnico Responsável: ${chamado.tecnicoNome}',
+                    (chamado.tecnico2Nome != null && chamado.tecnico2Nome!.trim().isNotEmpty)
+                        ? 'Técnicos: ${chamado.tecnicoNome} | ${chamado.tecnico2Nome}'
+                        : 'Técnico Responsável: ${chamado.tecnicoNome}',
                     style: const TextStyle(fontSize: 12, color: Color(0xFF1D4ED8), fontWeight: FontWeight.bold),
                   ),
                 ],
@@ -897,7 +899,10 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
       return;
     }
 
-    String tecnicoSelecionado = chamado.tecnicoNome ?? _tecnicosDisponiveis.first;
+    String tecnico1Selecionado = chamado.tecnicoNome ?? _tecnicosDisponiveis.first;
+    String tecnico2Selecionado = (chamado.tecnico2Nome != null && chamado.tecnico2Nome!.trim().isNotEmpty)
+        ? chamado.tecnico2Nome!
+        : 'Nenhum';
 
     showDialog(
       context: context,
@@ -916,70 +921,103 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
                   child: const Icon(Icons.assignment_ind, color: Color(0xFF0A369D)),
                 ),
                 const SizedBox(width: 12),
-                const Text('Atribuir Técnico', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const Text('Atribuir Técnicos', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               ],
             ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Ordem de Serviço Nº ${chamado.numeroAts}',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'Cliente: ${chamado.razaoSocial}',
-                  style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
-                ),
-                Text(
-                  'Equipamento: ${chamado.modeloMaquina ?? "Máquina CNC"}',
-                  style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Selecione o profissional da equipe técnica:',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 8),
-                DropdownButtonFormField<String>(
-                  value: tecnicoSelecionado,
-                  decoration: InputDecoration(
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            content: SizedBox(
+              width: 420,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Ordem de Serviço Nº ${chamado.numeroAts}',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                   ),
-                  items: _tecnicosDisponiveis.map((tec) {
-                    return DropdownMenuItem(value: tec, child: Text(tec));
-                  }).toList(),
-                  onChanged: (val) {
-                    if (val != null) {
-                      setModalState(() {
-                        tecnicoSelecionado = val;
-                      });
-                    }
-                  },
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF1F5F9),
-                    borderRadius: BorderRadius.circular(6),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Cliente: ${chamado.razaoSocial}',
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
                   ),
-                  child: const Row(
-                    children: [
-                      Icon(Icons.info_outline, size: 16, color: Color(0xFF475569)),
-                      SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'O chamado passará para o status "atribuido" e será imediatamente disponibilizado no aplicativo do técnico.',
-                          style: TextStyle(fontSize: 11, color: Color(0xFF475569)),
-                        ),
-                      ),
+                  Text(
+                    'Equipamento: ${chamado.modeloMaquina ?? "Máquina CNC"}',
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Técnico 1 (Principal):',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 6),
+                  DropdownButtonFormField<String>(
+                    value: _tecnicosDisponiveis.contains(tecnico1Selecionado)
+                        ? tecnico1Selecionado
+                        : _tecnicosDisponiveis.first,
+                    decoration: InputDecoration(
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                    items: _tecnicosDisponiveis.map((tec) {
+                      return DropdownMenuItem(value: tec, child: Text(tec));
+                    }).toList(),
+                    onChanged: (val) {
+                      if (val != null) {
+                        setModalState(() {
+                          tecnico1Selecionado = val;
+                        });
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Técnico 2 (Auxiliar - Opcional):',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 6),
+                  DropdownButtonFormField<String>(
+                    value: (_tecnicosDisponiveis.contains(tecnico2Selecionado) || tecnico2Selecionado == 'Nenhum')
+                        ? tecnico2Selecionado
+                        : 'Nenhum',
+                    decoration: InputDecoration(
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                    items: [
+                      const DropdownMenuItem(value: 'Nenhum', child: Text('Nenhum (Apenas 1 técnico)')),
+                      ..._tecnicosDisponiveis.map((tec) {
+                        return DropdownMenuItem(value: tec, child: Text(tec));
+                      }),
                     ],
+                    onChanged: (val) {
+                      if (val != null) {
+                        setModalState(() {
+                          tecnico2Selecionado = val;
+                        });
+                      }
+                    },
                   ),
-                ),
-              ],
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF1F5F9),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.info_outline, size: 16, color: Color(0xFF475569)),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'O chamado passará para o status "atribuido" e será imediatamente disponibilizado no aplicativo dos técnicos selecionados.',
+                            style: TextStyle(fontSize: 11, color: Color(0xFF475569)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
             actions: [
               TextButton(
@@ -989,15 +1027,22 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
               ElevatedButton(
                 onPressed: () async {
                   Navigator.pop(dialogCtx);
+                  final tec2 = (tecnico2Selecionado != 'Nenhum' && tecnico2Selecionado.trim().isNotEmpty)
+                      ? tecnico2Selecionado.trim()
+                      : null;
                   final success = await ChamadosService.instance.atribuirTecnico(
                     chamadoId: chamado.id,
-                    tecnicoNome: tecnicoSelecionado,
+                    tecnicoNome: tecnico1Selecionado,
+                    tecnico2Nome: tec2,
                   );
 
                   if (context.mounted && success) {
+                    final msg = tec2 != null
+                        ? 'Chamado Nº ${chamado.numeroAts} atribuído aos técnicos $tecnico1Selecionado e $tec2 com sucesso!'
+                        : 'Chamado Nº ${chamado.numeroAts} atribuído a $tecnico1Selecionado com sucesso!';
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: Text('Chamado Nº ${chamado.numeroAts} atribuído a $tecnicoSelecionado com sucesso!'),
+                        content: Text(msg),
                         backgroundColor: const Color(0xFF10B981),
                         behavior: SnackBarBehavior.floating,
                       ),

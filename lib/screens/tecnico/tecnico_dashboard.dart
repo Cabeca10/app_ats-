@@ -100,28 +100,37 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
         response = await Supabase.instance.client
             .from('chamados')
             .select(Chamado.selectColumnsMinimas)
-            .eq('tecnico_id', user.id)
+            .or('tecnico_id.eq.${user.id},tecnico2_id.eq.${user.id}')
             .order('created_at', ascending: false);
       } catch (_) {
         try {
           response = await Supabase.instance.client
               .from('chamados')
               .select(Chamado.selectColumnsMinimas)
-              .eq('tecnico_id', user.id)
+              .or('tecnico_id.eq.${user.id},tecnico2_id.eq.${user.id}')
               .order('criado_em', ascending: false);
         } catch (_) {
           try {
             response = await Supabase.instance.client
                 .from('chamados')
                 .select('*')
-                .eq('tecnico_id', user.id)
+                .or('tecnico_id.eq.${user.id},tecnico2_id.eq.${user.id}')
                 .order('created_at', ascending: false);
           } catch (_) {
-            response = await Supabase.instance.client
-                .from('chamados')
-                .select('*')
-                .eq('tecnico_id', user.id)
-                .order('criado_em', ascending: false);
+            try {
+              response = await Supabase.instance.client
+                  .from('chamados')
+                  .select('*')
+                  .or('tecnico_id.eq.${user.id},tecnico2_id.eq.${user.id}')
+                  .order('criado_em', ascending: false);
+            } catch (_) {
+              // Fallback para apenas tecnico_id caso a coluna tecnico2_id não esteja disponível
+              response = await Supabase.instance.client
+                  .from('chamados')
+                  .select('*')
+                  .eq('tecnico_id', user.id)
+                  .order('created_at', ascending: false);
+            }
           }
         }
       }
