@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:printing/printing.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../models/chamado.dart';
@@ -10,6 +11,7 @@ import '../../models/log_horas_custos.dart';
 import '../../models/tecnico.dart';
 import '../../services/ats_pdf_service.dart';
 import '../../services/chamados_service.dart';
+import '../../services/orcamento_pdf_service.dart';
 import '../../services/tecnicos_service.dart';
 import '../../utils/url_helper.dart';
 import 'chamados_list_screen.dart';
@@ -30,6 +32,7 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
   String _filtroStatus = 'todos';
   String _buscaTexto = '';
   String? _enviandoEmailChamadoId;
+  String? _abrindoPdfChamadoId;
   final _dateFormat = DateFormat('dd/MM/yyyy HH:mm');
 
   List<String> get _tecnicosDisponiveis => TecnicosService.instance.nomesTecnicos;
@@ -514,8 +517,16 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                               DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
                               DataColumn(label: Text('Abertura', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
                               DataColumn(label: Text('Ações', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                              DataColumn(label: Text('Pdf Aprovado', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
                             ],
                             rows: chamados.map((c) {
+                              final temPdfAprovado =
+                                  (c.orcamentoPdfUrl != null && c.orcamentoPdfUrl!.trim().isNotEmpty) ||
+                                  c.termosAceitos ||
+                                  c.status == ChamadoStatus.aprovadoPendente ||
+                                  c.status == ChamadoStatus.atribuido ||
+                                  c.status == ChamadoStatus.emAtendimento ||
+                                  c.status == ChamadoStatus.finalizado;
                               return DataRow(
                                 cells: [
                                   DataCell(
@@ -644,6 +655,37 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                                       ],
                                     ),
                                   ),
+                                  DataCell(
+                                    temPdfAprovado
+                                        ? OutlinedButton.icon(
+                                            onPressed: _abrindoPdfChamadoId == c.id
+                                                ? null
+                                                : () => _abrirPdfAprovado(c),
+                                            icon: _abrindoPdfChamadoId == c.id
+                                                ? const SizedBox(
+                                                    width: 14,
+                                                    height: 14,
+                                                    child: CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                      color: Color(0xFFDC2626),
+                                                    ),
+                                                  )
+                                                : const Icon(Icons.picture_as_pdf_rounded, size: 15),
+                                            label: Text(
+                                              _abrindoPdfChamadoId == c.id ? 'Abrindo...' : 'Ver PDF',
+                                            ),
+                                            style: OutlinedButton.styleFrom(
+                                              foregroundColor: const Color(0xFFDC2626),
+                                              side: const BorderSide(color: Color(0xFFFCA5A5)),
+                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                              textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                            ),
+                                          )
+                                        : const Text(
+                                            'Aguardando',
+                                            style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                                          ),
+                                  ),
                                 ],
                               );
                             }).toList(),
@@ -758,6 +800,84 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
           ),
         );
         await _copiarLinkAprovacao(context, chamado);
+      }
+    }
+  }
+
+  /// Abre o PDF da proposta aprovada em nova aba ou gera em memória como fallback
+  Future<void> _abrirPdfAprovado(Chamado chamado) async {
+    setState(() => _abrindoPdfChamadoId = chamado.id);
+
+    try {
+      final pdfUrl = chamado.orcamentoPdfUrl?.trim();
+      if (pdfUrl != null &&
+          pdfUrl.isNotEmpty &&
+          pdfUrl.startsWith('http') &&
+          !pdfUrl.contains('storage.local')) {
+        try {
+          final uri = Uri.parse(pdfUrl);
+          var launched = await launchUrl(
+            uri,
+            webOnlyWindowName: '_blank',
+            mode: LaunchMode.externalApplication,
+          );
+          if (!launched) {
+            launched = await launchUrl(
+              uri,
+              webOnlyWindowName: '_blank',
+              mode: LaunchMode.platformDefault,
+            );
+          }
+          if (launched) return;
+        } catch (e, stackTrace) {
+          if (kDebugMode) {
+            debugPrint('[GerenteDashboard] Erro ao abrir URL direta do PDF, tentando fallback: $e\n$stackTrace');
+          }
+        }
+      }
+
+      Uint8List? pdfBytes;
+      if (pdfUrl != null && pdfUrl.contains('/orcamentos/')) {
+        try {
+          final path = pdfUrl.split('/orcamentos/').last;
+          final downloaded = await Supabase.instance.client.storage.from('orcamentos').download(path);
+          if (downloaded.isNotEmpty) {
+            pdfBytes = downloaded;
+          }
+        } catch (e, stackTrace) {
+          if (kDebugMode) {
+            debugPrint('[GerenteDashboard] Erro ao baixar PDF do Storage: $e\n$stackTrace');
+          }
+        }
+      }
+
+      pdfBytes ??= await OrcamentoPdfService.generatePdf(
+        chamado: chamado,
+        signatureBytes: await _obterAssinaturaBytes(chamado.assinaturaUrl),
+        responsavelNome: chamado.responsavelAceiteNome ?? 'Cliente Responsável',
+        responsavelCargo: chamado.responsavelAceiteCargo ?? 'Representante Autorizado',
+      );
+
+      await Printing.layoutPdf(
+        onLayout: (_) => pdfBytes!,
+        name: 'Proposta_ATS_${chamado.numeroAts}.pdf',
+      );
+    } catch (e, stackTrace) {
+      if (kDebugMode) {
+        debugPrint('[GerenteDashboard] Erro ao abrir PDF aprovado: $e\n$stackTrace');
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao abrir PDF aprovado: $e'),
+            backgroundColor: const Color(0xFFDC2626),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _abrindoPdfChamadoId = null);
       }
     }
   }
