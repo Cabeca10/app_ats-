@@ -543,8 +543,11 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
             const Divider(height: 20),
 
             // Ações
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.end,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 // Botão de Baixar / Ver PDF Orçamento
                 OutlinedButton.icon(
@@ -558,7 +561,23 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
                     textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                   ),
                 ),
-                const SizedBox(width: 8),
+
+                if (chamado.status == ChamadoStatus.finalizado ||
+                    (chamado.relatorioPdfUrl != null && chamado.relatorioPdfUrl!.trim().isNotEmpty))
+                  OutlinedButton.icon(
+                    onPressed: () => _visualizarRelatorioFinalizado(chamado),
+                    icon: const Icon(Icons.picture_as_pdf_rounded, size: 16),
+                    label: Text(
+                      'Finalizado v${chamado.relatorioVersao > 0 ? chamado.relatorioVersao : 1}',
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF15803D),
+                      backgroundColor: const Color(0xFFF0FDF4),
+                      side: const BorderSide(color: Color(0xFF86EFAC)),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                  ),
 
                 // Botão "Atribuir Técnico" (habilitado quando status for aprovado_pendente)
                 if (isAprovadoPendente)
@@ -573,8 +592,7 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
                       textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                     ),
                   ),
-                if (chamado.status == ChamadoStatus.finalizado) ...[
-                  const SizedBox(width: 8),
+                if (chamado.status == ChamadoStatus.finalizado)
                   ElevatedButton.icon(
                     onPressed: _enviandoEmailChamadoId == chamado.id
                         ? null
@@ -596,7 +614,6 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
                       textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                     ),
                   ),
-                ],
               ],
             ),
           ],
@@ -744,6 +761,105 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
     }
   }
 
+  Future<void> _visualizarRelatorioFinalizado(Chamado chamado) async {
+    try {
+      final versao = chamado.relatorioVersao > 0 ? chamado.relatorioVersao : 1;
+      final relatorioUrl = chamado.relatorioPdfUrl?.trim();
+
+      if (relatorioUrl != null &&
+          relatorioUrl.isNotEmpty &&
+          relatorioUrl.startsWith('http') &&
+          !relatorioUrl.contains('storage.local')) {
+        try {
+          final uri = Uri.parse(relatorioUrl);
+          var launched = await launchUrl(
+            uri,
+            webOnlyWindowName: '_blank',
+            mode: LaunchMode.externalApplication,
+          );
+          if (!launched) {
+            launched = await launchUrl(
+              uri,
+              webOnlyWindowName: '_blank',
+              mode: LaunchMode.platformDefault,
+            );
+          }
+          if (launched) return;
+        } catch (_) {}
+      }
+
+      Uint8List? pdfBytes;
+      if (relatorioUrl != null && relatorioUrl.contains('/orcamentos/')) {
+        try {
+          final path = relatorioUrl.split('/orcamentos/').last.split('?').first;
+          final downloaded = await Supabase.instance.client.storage.from('orcamentos').download(path);
+          if (downloaded.isNotEmpty) {
+            pdfBytes = downloaded;
+          }
+        } catch (e) {
+          debugPrint('[ChamadosList] Erro ao baixar relatório finalizado do storage: $e');
+        }
+      }
+
+      if (pdfBytes == null) {
+        final client = Supabase.instance.client;
+        List<DiaTrabalho> dias = chamado.diasTrabalho;
+        if (dias.isEmpty && chamado.id.isNotEmpty && !chamado.id.startsWith('chamado-')) {
+          try {
+            final diasRes = await client
+                .from('ats_dias_trabalho')
+                .select()
+                .eq('chamado_id', chamado.id)
+                .order('data', ascending: true);
+            if (diasRes.isNotEmpty) {
+              dias = (diasRes as List)
+                  .map((d) => DiaTrabalho.fromMap(Map<String, dynamic>.from(d as Map)))
+                  .toList();
+            }
+          } catch (_) {}
+        }
+
+        final logHoras = LogHorasCustos(
+          id: 'log-${DateTime.now().millisecondsSinceEpoch}',
+          idChamado: chamado.id,
+          data: dias.isNotEmpty ? dias.first.data : DateTime.now(),
+          horaInicio: dias.isNotEmpty ? dias.first.horaInicio : '08:00',
+          horaFim: dias.isNotEmpty ? (dias.first.horaFim ?? '17:00') : '17:00',
+          kmRodado: chamado.kmEstimado ?? 0.0,
+        );
+
+        pdfBytes = await AtsPdfService.instance.gerarRelatorioAtsPdf(
+          chamado: chamado,
+          logHoras: logHoras,
+          diasTrabalho: dias,
+          servicoExecutado: (chamado.servicoExecutado != null && chamado.servicoExecutado!.trim().isNotEmpty)
+              ? chamado.servicoExecutado!.trim()
+              : 'Atendimento e revisão técnica industrial concluídos.',
+          assinaturaBytes: await _obterAssinaturaBytes(chamado.assinaturaUrl),
+          responsavelNome: (chamado.responsavelAceiteNome != null && chamado.responsavelAceiteNome!.trim().isNotEmpty)
+              ? chamado.responsavelAceiteNome!.trim()
+              : (chamado.contato ?? 'Cliente Responsável'),
+          videoUrl: chamado.videoUrl,
+          versao: versao,
+        );
+      }
+
+      await Printing.layoutPdf(
+        onLayout: (_) => pdfBytes!,
+        name: 'Relatorio_ATS_${chamado.numeroAts}_v$versao.pdf',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao visualizar relatório finalizado: $e'),
+            backgroundColor: const Color(0xFFDC2626),
+          ),
+        );
+      }
+    }
+  }
+
   // ============================================================================
   // GERAÇÃO DE PDF E DISPARO DE E-MAIL VIA SUPABASE EDGE FUNCTIONS
   // ============================================================================
@@ -795,7 +911,8 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
       // 3. Obtém assinatura (ou fallback transparente)
       final assinaturaBytes = await _obterAssinaturaBytes(chamado.assinaturaUrl);
 
-      // 4. Gera o PDF oficial da ATS
+      // 4. Gera o PDF oficial da ATS na versão atual
+      final versao = chamado.relatorioVersao > 0 ? chamado.relatorioVersao : 1;
       final pdfBytes = await AtsPdfService.instance.gerarRelatorioAtsPdf(
         chamado: chamado,
         logHoras: logHoras,
@@ -808,11 +925,12 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
             ? chamado.responsavelAceiteNome!.trim()
             : (chamado.contato ?? 'Cliente Responsável'),
         videoUrl: chamado.videoUrl,
+        versao: versao,
       );
 
-      // 5. Upload do PDF (v1) para o Supabase Storage
+      // 5. Upload do PDF (v$versao) para o Supabase Storage
       final cleanAts = chamado.numeroAts.replaceAll('ATS-', '').trim();
-      final pdfPath = 'relatorios_ats/ats_${cleanAts}_v1.pdf';
+      final pdfPath = 'relatorios_ats/ats_${cleanAts}_v$versao.pdf';
       await client.storage.from('orcamentos').uploadBinary(
             pdfPath,
             pdfBytes,
@@ -820,22 +938,24 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
           );
       final pdfUrl = client.storage.from('orcamentos').getPublicUrl(pdfPath);
 
-      // 6. UPDATE na tabela chamados com a nova pdf_url
+      // 6. UPDATE na tabela chamados atualizando relatorio_pdf_url (preserva orcamento_pdf_url)
       if (chamado.id.isNotEmpty && !chamado.id.startsWith('chamado-')) {
         await client.from('chamados').update({
-          'orcamento_pdf_url': pdfUrl,
+          'relatorio_pdf_url': pdfUrl,
+          'relatorio_versao': versao,
           'updated_at': DateTime.now().toIso8601String(),
         }).eq('id', chamado.id);
       } else {
         await client.from('chamados').update({
-          'orcamento_pdf_url': pdfUrl,
+          'relatorio_pdf_url': pdfUrl,
+          'relatorio_versao': versao,
           'updated_at': DateTime.now().toIso8601String(),
         }).eq('numero_ats', cleanAts);
       }
 
       // Atualiza o chamado no cache reativo local
       await ChamadosService.instance.atualizarChamado(
-        chamado.copyWith(orcamentoPdfUrl: pdfUrl),
+        chamado.copyWith(relatorioPdfUrl: pdfUrl, relatorioVersao: versao),
       );
 
       // 7. Invoca a Supabase Edge Function send-ats-pdf

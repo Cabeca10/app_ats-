@@ -33,6 +33,7 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
   String _buscaTexto = '';
   String? _enviandoEmailChamadoId;
   String? _abrindoPdfChamadoId;
+  String? _abrindoRelatorioChamadoId;
   String? _excluindoChamadoId;
   final _dateFormat = DateFormat('dd/MM/yyyy HH:mm');
 
@@ -520,6 +521,7 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                               DataColumn(label: Text('Técnico 2', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
                               DataColumn(label: Text('Abertura', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
                               DataColumn(label: Text('Ações', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                              DataColumn(label: Text('Relatório Finalizado', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
                               DataColumn(label: Text('Pdf Aprovado', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
                               DataColumn(label: Text('Excluir', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
                             ],
@@ -531,6 +533,9 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                                   c.status == ChamadoStatus.atribuido ||
                                   c.status == ChamadoStatus.emAtendimento ||
                                   c.status == ChamadoStatus.finalizado;
+                              final temRelatorioFinal = c.status == ChamadoStatus.finalizado ||
+                                  (c.relatorioPdfUrl != null && c.relatorioPdfUrl!.trim().isNotEmpty);
+                              final versaoRelatorio = c.relatorioVersao > 0 ? c.relatorioVersao : 1;
                               return DataRow(
                                 cells: [
                                   DataCell(
@@ -679,6 +684,40 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                                         ],
                                       ],
                                     ),
+                                  ),
+                                  DataCell(
+                                    temRelatorioFinal
+                                        ? OutlinedButton.icon(
+                                            onPressed: _abrindoRelatorioChamadoId == c.id
+                                                ? null
+                                                : () => _abrirRelatorioFinalizado(c),
+                                            icon: _abrindoRelatorioChamadoId == c.id
+                                                ? const SizedBox(
+                                                    width: 14,
+                                                    height: 14,
+                                                    child: CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                      color: Color(0xFF15803D),
+                                                    ),
+                                                  )
+                                                : const Icon(Icons.picture_as_pdf_rounded, size: 15),
+                                            label: Text(
+                                              _abrindoRelatorioChamadoId == c.id
+                                                  ? 'Abrindo...'
+                                                  : 'Finalizado v$versaoRelatorio',
+                                            ),
+                                            style: OutlinedButton.styleFrom(
+                                              foregroundColor: const Color(0xFF15803D),
+                                              backgroundColor: const Color(0xFFF0FDF4),
+                                              side: const BorderSide(color: Color(0xFF86EFAC)),
+                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                              textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                            ),
+                                          )
+                                        : const Text(
+                                            'Aguardando',
+                                            style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                                          ),
                                   ),
                                   DataCell(
                                     temPdfAprovado
@@ -930,6 +969,122 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
     } finally {
       if (mounted) {
         setState(() => _abrindoPdfChamadoId = null);
+      }
+    }
+  }
+
+  /// Abre o PDF do relatório técnico finalizado (v1, v2, ...) em nova aba ou gera como fallback
+  Future<void> _abrirRelatorioFinalizado(Chamado chamado) async {
+    setState(() => _abrindoRelatorioChamadoId = chamado.id);
+
+    try {
+      final relatorioUrl = chamado.relatorioPdfUrl?.trim();
+      final versao = chamado.relatorioVersao > 0 ? chamado.relatorioVersao : 1;
+
+      if (relatorioUrl != null &&
+          relatorioUrl.isNotEmpty &&
+          relatorioUrl.startsWith('http') &&
+          !relatorioUrl.contains('storage.local')) {
+        try {
+          final uri = Uri.parse(relatorioUrl);
+          var launched = await launchUrl(
+            uri,
+            webOnlyWindowName: '_blank',
+            mode: LaunchMode.externalApplication,
+          );
+          if (!launched) {
+            launched = await launchUrl(
+              uri,
+              webOnlyWindowName: '_blank',
+              mode: LaunchMode.platformDefault,
+            );
+          }
+          if (launched) return;
+        } catch (e, stackTrace) {
+          if (kDebugMode) {
+            debugPrint('[GerenteDashboard] Erro ao abrir URL do relatório finalizado, tentando fallback: $e\n$stackTrace');
+          }
+        }
+      }
+
+      Uint8List? pdfBytes;
+      if (relatorioUrl != null && relatorioUrl.contains('/orcamentos/')) {
+        try {
+          final path = relatorioUrl.split('/orcamentos/').last.split('?').first;
+          final downloaded = await Supabase.instance.client.storage.from('orcamentos').download(path);
+          if (downloaded.isNotEmpty) {
+            pdfBytes = downloaded;
+          }
+        } catch (e, stackTrace) {
+          if (kDebugMode) {
+            debugPrint('[GerenteDashboard] Erro ao baixar relatório finalizado do Storage: $e\n$stackTrace');
+          }
+        }
+      }
+
+      if (pdfBytes == null) {
+        final client = Supabase.instance.client;
+        List<DiaTrabalho> dias = chamado.diasTrabalho;
+        if (dias.isEmpty && chamado.id.isNotEmpty && !chamado.id.startsWith('chamado-')) {
+          try {
+            final diasRes = await client
+                .from('ats_dias_trabalho')
+                .select()
+                .eq('chamado_id', chamado.id)
+                .order('data', ascending: true);
+            if (diasRes.isNotEmpty) {
+              dias = (diasRes as List)
+                  .map((d) => DiaTrabalho.fromMap(Map<String, dynamic>.from(d as Map)))
+                  .toList();
+            }
+          } catch (_) {}
+        }
+
+        final logHoras = LogHorasCustos(
+          id: 'log-${DateTime.now().millisecondsSinceEpoch}',
+          idChamado: chamado.id,
+          data: dias.isNotEmpty ? dias.first.data : DateTime.now(),
+          horaInicio: dias.isNotEmpty ? dias.first.horaInicio : '08:00',
+          horaFim: dias.isNotEmpty ? (dias.first.horaFim ?? '17:00') : '17:00',
+          kmRodado: chamado.kmEstimado ?? 0.0,
+        );
+
+        pdfBytes = await AtsPdfService.instance.gerarRelatorioAtsPdf(
+          chamado: chamado,
+          logHoras: logHoras,
+          diasTrabalho: dias,
+          servicoExecutado: (chamado.servicoExecutado != null && chamado.servicoExecutado!.trim().isNotEmpty)
+              ? chamado.servicoExecutado!.trim()
+              : 'Atendimento e revisão técnica industrial concluídos.',
+          assinaturaBytes: await _obterAssinaturaBytes(chamado.assinaturaUrl),
+          responsavelNome: (chamado.responsavelAceiteNome != null && chamado.responsavelAceiteNome!.trim().isNotEmpty)
+              ? chamado.responsavelAceiteNome!.trim()
+              : (chamado.contato ?? 'Cliente Responsável'),
+          videoUrl: chamado.videoUrl,
+          versao: versao,
+        );
+      }
+
+      await Printing.layoutPdf(
+        onLayout: (_) => pdfBytes!,
+        name: 'Relatorio_ATS_${chamado.numeroAts}_v$versao.pdf',
+      );
+    } catch (e, stackTrace) {
+      if (kDebugMode) {
+        debugPrint('[GerenteDashboard] Erro ao abrir relatório finalizado: $e\n$stackTrace');
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao abrir relatório finalizado: $e'),
+            backgroundColor: const Color(0xFFDC2626),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _abrindoRelatorioChamadoId = null);
       }
     }
   }
@@ -1972,7 +2127,8 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
       // 3. Obtém assinatura (ou fallback transparente)
       final assinaturaBytes = await _obterAssinaturaBytes(chamado.assinaturaUrl);
 
-      // 4. Gera o PDF oficial da ATS
+      // 4. Gera o PDF oficial da ATS na versão atual
+      final versao = chamado.relatorioVersao > 0 ? chamado.relatorioVersao : 1;
       final pdfBytes = await AtsPdfService.instance.gerarRelatorioAtsPdf(
         chamado: chamado,
         logHoras: logHoras,
@@ -1985,11 +2141,12 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
             ? chamado.responsavelAceiteNome!.trim()
             : (chamado.contato ?? 'Cliente Responsável'),
         videoUrl: chamado.videoUrl,
+        versao: versao,
       );
 
-      // 5. Upload do PDF (v1) para o Supabase Storage
+      // 5. Upload do PDF (v$versao) para o Supabase Storage
       final cleanAts = chamado.numeroAts.replaceAll('ATS-', '').trim();
-      final pdfPath = 'relatorios_ats/ats_${cleanAts}_v1.pdf';
+      final pdfPath = 'relatorios_ats/ats_${cleanAts}_v$versao.pdf';
       await client.storage.from('orcamentos').uploadBinary(
             pdfPath,
             pdfBytes,
@@ -1997,22 +2154,24 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
           );
       final pdfUrl = client.storage.from('orcamentos').getPublicUrl(pdfPath);
 
-      // 6. UPDATE na tabela chamados com a nova pdf_url
+      // 6. UPDATE na tabela chamados atualizando relatorio_pdf_url (preserva orcamento_pdf_url)
       if (chamado.id.isNotEmpty && !chamado.id.startsWith('chamado-')) {
         await client.from('chamados').update({
-          'orcamento_pdf_url': pdfUrl,
+          'relatorio_pdf_url': pdfUrl,
+          'relatorio_versao': versao,
           'updated_at': DateTime.now().toIso8601String(),
         }).eq('id', chamado.id);
       } else {
         await client.from('chamados').update({
-          'orcamento_pdf_url': pdfUrl,
+          'relatorio_pdf_url': pdfUrl,
+          'relatorio_versao': versao,
           'updated_at': DateTime.now().toIso8601String(),
         }).eq('numero_ats', cleanAts);
       }
 
       // Atualiza o chamado no cache reativo local
       await ChamadosService.instance.atualizarChamado(
-        chamado.copyWith(orcamentoPdfUrl: pdfUrl),
+        chamado.copyWith(relatorioPdfUrl: pdfUrl, relatorioVersao: versao),
       );
 
       // 7. Invoca a Supabase Edge Function send-ats-pdf

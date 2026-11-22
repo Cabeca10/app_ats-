@@ -488,6 +488,9 @@ class ChamadosService {
     String assinaturaUrl = '',
     String? responsavelNome,
     String? defeitoRelatado,
+    String? servicoExecutado,
+    String? relatorioPdfUrl,
+    int? relatorioVersao,
     String? razaoSocial,
     String? endereco,
     String? modeloMaquina,
@@ -497,7 +500,7 @@ class ChamadosService {
 
     final updateData = <String, dynamic>{
       'status': ChamadoStatus.finalizado,
-      'assinatura_url': assinaturaUrl,
+      if (assinaturaUrl.trim().isNotEmpty) 'assinatura_url': assinaturaUrl.trim(),
       'termos_aceitos': true,
       'aceite_data': agora.toIso8601String(),
       'updated_at': agora.toIso8601String(),
@@ -508,6 +511,15 @@ class ChamadosService {
     }
     if (defeitoRelatado != null && defeitoRelatado.trim().isNotEmpty) {
       updateData['defeito_relatado'] = defeitoRelatado.trim();
+    }
+    if (servicoExecutado != null && servicoExecutado.trim().isNotEmpty) {
+      updateData['servico_executado'] = servicoExecutado.trim();
+    }
+    if (relatorioPdfUrl != null && relatorioPdfUrl.trim().isNotEmpty) {
+      updateData['relatorio_pdf_url'] = relatorioPdfUrl.trim();
+    }
+    if (relatorioVersao != null && relatorioVersao > 0) {
+      updateData['relatorio_versao'] = relatorioVersao;
     }
     if (razaoSocial != null && razaoSocial.trim().isNotEmpty) {
       updateData['razao_social'] = razaoSocial.trim();
@@ -554,21 +566,26 @@ class ChamadosService {
           c.numeroAts == numeroAts);
 
       if (index != -1) {
-        listaAtual[index] = listaAtual[index].copyWith(
+        final atual = listaAtual[index];
+        listaAtual[index] = atual.copyWith(
           status: ChamadoStatus.finalizado,
-          assinaturaUrl: assinaturaUrl,
-          responsavelAceiteNome: responsavelNome ?? listaAtual[index].responsavelAceiteNome,
-          defeitoRelatado: defeitoRelatado ?? listaAtual[index].defeitoRelatado,
-          razaoSocial: razaoSocial ?? listaAtual[index].razaoSocial,
-          endereco: endereco ?? listaAtual[index].endereco,
-          modeloMaquina: modeloMaquina ?? listaAtual[index].modeloMaquina,
-          numeroSerie: numeroSerie ?? listaAtual[index].numeroSerie,
+          assinaturaUrl: assinaturaUrl.trim().isNotEmpty ? assinaturaUrl.trim() : atual.assinaturaUrl,
+          responsavelAceiteNome: responsavelNome ?? atual.responsavelAceiteNome,
+          defeitoRelatado: defeitoRelatado ?? atual.defeitoRelatado,
+          servicoExecutado: servicoExecutado ?? atual.servicoExecutado,
+          relatorioPdfUrl: relatorioPdfUrl ?? atual.relatorioPdfUrl,
+          relatorioVersao: relatorioVersao ?? (atual.relatorioVersao > 0 ? atual.relatorioVersao : 1),
+          razaoSocial: razaoSocial ?? atual.razaoSocial,
+          endereco: endereco ?? atual.endereco,
+          modeloMaquina: modeloMaquina ?? atual.modeloMaquina,
+          numeroSerie: numeroSerie ?? atual.numeroSerie,
           termosAceitos: true,
           aceiteData: agora,
           pendingSync: !remotoSucesso,
           updatedAt: agora,
         );
         chamadosNotifier.value = listaAtual;
+        realtimeTickNotifier.value++;
         return true;
       }
     } catch (e, stack) {
@@ -607,15 +624,33 @@ class ChamadosService {
         final pdfStoragePath = _extrairStoragePathOrcamentos(chamado.orcamentoPdfUrl);
         if (pdfStoragePath != null) paths.add(pdfStoragePath);
 
+        final relatorioStoragePath = _extrairStoragePathOrcamentos(chamado.relatorioPdfUrl);
+        if (relatorioStoragePath != null) paths.add(relatorioStoragePath);
+
         final sigStoragePath = _extrairStoragePathOrcamentos(chamado.assinaturaUrl);
         if (sigStoragePath != null) paths.add(sigStoragePath);
 
         if (chamado.tokenUrl.trim().isNotEmpty) {
           paths.add('assinaturas/assinatura_${chamado.tokenUrl}.png');
         }
-        if (chamado.numeroAts.trim().isNotEmpty) {
-          final cleanNumeroAts = chamado.numeroAts.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+        final cleanNumeroAts = chamado.numeroAts.trim().isNotEmpty
+            ? chamado.numeroAts.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_')
+            : '';
+        if (cleanNumeroAts.isNotEmpty) {
           paths.add('pdfs/proposta_$cleanNumeroAts.pdf');
+          try {
+            final relFiles = await client.storage.from('orcamentos').list(path: 'relatorios_ats');
+            for (final file in relFiles) {
+              if (file.name.contains('ats_${cleanNumeroAts}_') ||
+                  file.name.contains('ats_${chamado.numeroAts}_')) {
+                paths.add('relatorios_ats/${file.name}');
+              }
+            }
+          } catch (relErr) {
+            if (kDebugMode) {
+              debugPrint('[ChamadosService] Aviso ao listar relatórios no Storage: $relErr');
+            }
+          }
         }
 
         try {

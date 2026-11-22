@@ -23,6 +23,7 @@ class AtsPdfService {
     required String responsavelNome,
     String? videoUrl,
     String? fotoUrl,
+    int versao = 1,
   }) async {
     final pdf = pw.Document();
 
@@ -97,6 +98,10 @@ class AtsPdfService {
                       pw.Text(
                         'Nº ${chamado.numeroAts}',
                         style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: PdfColors.black),
+                      ),
+                      pw.Text(
+                        'Versão v$versao',
+                        style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: PdfColor.fromInt(0xFF0A369D)),
                       ),
                       pw.Text(
                         'Emissão: ${dateFormat.format(DateTime.now())}',

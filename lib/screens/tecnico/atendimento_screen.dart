@@ -14,11 +14,13 @@ import 'tecnico_dashboard.dart';
 class AtendimentoScreen extends StatefulWidget {
   final Ticket? ticket;
   final Chamado? chamado;
+  final bool isRevisao;
 
   const AtendimentoScreen({
     super.key,
     this.ticket,
     this.chamado,
+    this.isRevisao = false,
   });
 
   @override
@@ -173,7 +175,7 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'O.S. $_numeroAts',
+              widget.isRevisao ? 'O.S. $_numeroAts (Revisão)' : 'O.S. $_numeroAts',
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             Text(
@@ -211,6 +213,7 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
             ticket: widget.ticket,
             chamado: widget.chamado,
             isEmbedded: true,
+            isRevisao: widget.isRevisao,
           ),
 
           // ABA 2: CHAT IA (PLACEHOLDER E MANUAIS)

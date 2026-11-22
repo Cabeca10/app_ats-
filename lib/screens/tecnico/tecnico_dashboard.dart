@@ -4,8 +4,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'atendimento_screen.dart';
 import '../../models/chamado.dart';
+import '../../models/dia_trabalho.dart';
+import '../../models/log_horas_custos.dart';
+import '../../services/ats_pdf_service.dart';
 import '../../services/chamados_service.dart';
 import '../../services/offline_storage_service.dart';
 import '../../services/orcamento_pdf_service.dart';
@@ -27,6 +31,8 @@ class Ticket {
   final String address;
   final String? defeitoRelatado;
   final String? orcamentoPdfUrl;
+  final String? relatorioPdfUrl;
+  final int relatorioVersao;
 
   Ticket({
     required this.id,
@@ -40,6 +46,8 @@ class Ticket {
     required this.address,
     this.defeitoRelatado,
     this.orcamentoPdfUrl,
+    this.relatorioPdfUrl,
+    this.relatorioVersao = 0,
   });
 }
 
@@ -159,6 +167,9 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
             status: _formatarStatus(row['status']?.toString()),
             address: row['endereco']?.toString() ?? 'Conforme O.S.',
             defeitoRelatado: row['defeito_relatado']?.toString(),
+            orcamentoPdfUrl: (row['orcamento_pdf_url'] ?? row['pdf_url'])?.toString(),
+            relatorioPdfUrl: row['relatorio_pdf_url']?.toString(),
+            relatorioVersao: (row['relatorio_versao'] as num?)?.toInt() ?? 0,
           );
         }).toList();
 
@@ -205,8 +216,10 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
     final cached = OfflineStorageService.instance.obterChamadosTecnicoCache();
     if (cached.isNotEmpty) {
       final list = cached.map((row) {
+        final rawAts = row['numero_ats']?.toString() ?? '';
+        final ticketId = rawAts.toUpperCase().startsWith('ATS-') ? rawAts : 'ATS-$rawAts';
         return Ticket(
-          id: 'ATS-${row['numero_ats'] ?? ''}',
+          id: ticketId,
           chamadoId: row['id']?.toString(),
           numeroAts: row['numero_ats']?.toString(),
           companyName: row['razao_social']?.toString() ?? 'Cliente',
@@ -216,6 +229,9 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
           status: _formatarStatus(row['status']?.toString()),
           address: row['endereco']?.toString() ?? 'Conforme O.S.',
           defeitoRelatado: row['defeito_relatado']?.toString(),
+          orcamentoPdfUrl: (row['orcamento_pdf_url'] ?? row['pdf_url'])?.toString(),
+          relatorioPdfUrl: row['relatorio_pdf_url']?.toString(),
+          relatorioVersao: (row['relatorio_versao'] as num?)?.toInt() ?? 0,
         );
       }).toList();
 
@@ -229,8 +245,9 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
       final localNotifier = ChamadosService.instance.chamadosNotifier.value;
       if (localNotifier.isNotEmpty) {
         final list = localNotifier.map((c) {
+          final ticketId = c.numeroAts.toUpperCase().startsWith('ATS-') ? c.numeroAts : 'ATS-${c.numeroAts}';
           return Ticket(
-            id: 'ATS-${c.numeroAts}',
+            id: ticketId,
             chamadoId: c.id,
             numeroAts: c.numeroAts,
             companyName: c.razaoSocial,
@@ -240,6 +257,9 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
             status: _formatarStatus(c.status),
             address: c.endereco ?? 'Conforme O.S.',
             defeitoRelatado: c.defeitoRelatado,
+            orcamentoPdfUrl: c.orcamentoPdfUrl,
+            relatorioPdfUrl: c.relatorioPdfUrl,
+            relatorioVersao: c.relatorioVersao,
           );
         }).toList();
 
@@ -662,7 +682,7 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
                         c.status == ChamadoStatus.emAtendimento ||
                         c.status == ChamadoStatus.finalizado)
                     .map((c) => Ticket(
-                          id: 'ATS-${c.numeroAts}',
+                          id: c.numeroAts.toUpperCase().startsWith('ATS-') ? c.numeroAts : 'ATS-${c.numeroAts}',
                           chamadoId: c.id,
                           numeroAts: c.numeroAts,
                           companyName: c.razaoSocial,
@@ -675,17 +695,19 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
                           address: c.endereco ?? 'Joinville / Região',
                           defeitoRelatado: c.defeitoRelatado,
                           orcamentoPdfUrl: c.orcamentoPdfUrl,
+                          relatorioPdfUrl: c.relatorioPdfUrl,
+                          relatorioVersao: c.relatorioVersao,
                         ))
                     .toList();
 
-                // Evita duplicatas pelo ID
+                // Evita duplicatas pelo ID, priorizando dados mais recentes em chamadosAtribuidos quando presentes
                 final ticketIds = <String>{};
                 final allTickets = <Ticket>[];
 
-                for (var t in _tickets) {
+                for (var t in chamadosAtribuidos) {
                   if (ticketIds.add(t.id)) allTickets.add(t);
                 }
-                for (var t in chamadosAtribuidos) {
+                for (var t in _tickets) {
                   if (ticketIds.add(t.id)) allTickets.add(t);
                 }
 
@@ -721,7 +743,7 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
     );
   }
 
-  Future<void> _abrirAtendimento(Ticket ticket) async {
+  Future<void> _abrirAtendimento(Ticket ticket, {bool isRevisao = false}) async {
     Chamado? chamado;
     if (ticket.chamadoId != null && ticket.chamadoId!.isNotEmpty) {
       chamado = ChamadosService.instance.obterChamadoPorId(ticket.chamadoId!);
@@ -736,10 +758,17 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
         builder: (context) => AtendimentoScreen(
           ticket: ticket,
           chamado: chamado,
+          isRevisao: isRevisao,
         ),
       ),
     );
     if (res == true && mounted) {
+      final atualizado = (ticket.chamadoId != null && ticket.chamadoId!.isNotEmpty
+              ? ChamadosService.instance.obterChamadoPorId(ticket.chamadoId!)
+              : null) ??
+          (ticket.numeroAts != null && ticket.numeroAts!.isNotEmpty
+              ? ChamadosService.instance.obterChamadoPorNumeroAts(ticket.numeroAts!)
+              : null);
       setState(() {
         final idx = _tickets.indexWhere((t) => t.id == ticket.id);
         if (idx != -1) {
@@ -754,11 +783,71 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
             priority: old.priority,
             status: 'Concluído',
             address: old.address,
-            defeitoRelatado: old.defeitoRelatado,
-            orcamentoPdfUrl: old.orcamentoPdfUrl,
+            defeitoRelatado: atualizado?.defeitoRelatado ?? old.defeitoRelatado,
+            orcamentoPdfUrl: atualizado?.orcamentoPdfUrl ?? old.orcamentoPdfUrl,
+            relatorioPdfUrl: atualizado?.relatorioPdfUrl ?? old.relatorioPdfUrl,
+            relatorioVersao: atualizado?.relatorioVersao ?? old.relatorioVersao,
           );
         }
       });
+      await _carregarChamadosDoTecnico();
+      await ChamadosService.instance.recarregarChamados();
+    }
+  }
+
+  Future<void> _confirmarRefazerRelatorio(Ticket ticket) async {
+    final chamado = (ticket.chamadoId != null && ticket.chamadoId!.isNotEmpty
+            ? ChamadosService.instance.obterChamadoPorId(ticket.chamadoId!)
+            : null) ??
+        (ticket.numeroAts != null && ticket.numeroAts!.isNotEmpty
+            ? ChamadosService.instance.obterChamadoPorNumeroAts(ticket.numeroAts!)
+            : null);
+    final versaoAtual = ticket.relatorioVersao > 0
+        ? ticket.relatorioVersao
+        : ((chamado?.relatorioVersao ?? 0) > 0 ? chamado!.relatorioVersao : 1);
+    final proximaVersao = versaoAtual + 1;
+
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        title: Row(
+          children: [
+            const Icon(Icons.edit_note_rounded, color: Color(0xFFD97706), size: 26),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Refazer Relatório (v$proximaVersao)?',
+                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          'Você poderá ajustar as informações do relatório técnico e coletar uma nova assinatura do cliente para aprovar a revisão.\n\n'
+          'Ao concluir, o relatório será salvo como Finalizado v$proximaVersao e a versão anterior (Finalizado v$versaoAtual) será apagada automaticamente.',
+          style: const TextStyle(fontSize: 13, height: 1.4, color: Color(0xFF334155)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.pop(ctx, true),
+            icon: const Icon(Icons.edit_note_rounded, size: 18),
+            label: const Text('Refazer Relatório'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFD97706),
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar == true && mounted) {
+      await _abrirAtendimento(ticket, isRevisao: true);
     }
   }
 
@@ -812,7 +901,9 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
         child: Material(
           color: Colors.transparent,
           child: InkWell(
-            onTap: () => _abrirAtendimento(ticket),
+            onTap: () => ticket.status == 'Concluído'
+                ? _confirmarRefazerRelatorio(ticket)
+                : _abrirAtendimento(ticket),
             child: IntrinsicHeight(
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -937,89 +1028,108 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
                           const SizedBox(height: 16),
 
                           // Footer actions
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              // Status Badge
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: statusColor.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Container(
-                                      width: 6,
-                                      height: 6,
-                                      decoration: BoxDecoration(shape: BoxShape.circle, color: statusColor),
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      ticket.status,
-                                      style: TextStyle(
-                                        color: statusColor,
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-
-                              // Action Button
-                              Row(
+                          Builder(
+                            builder: (context) {
+                              final versao = ticket.relatorioVersao > 0 ? ticket.relatorioVersao : 1;
+                              return Row(
+                                crossAxisAlignment: CrossAxisAlignment.center,
                                 children: [
-                                  if (ticket.defeitoRelatado != null || ticket.orcamentoPdfUrl != null) ...[
-                                    OutlinedButton.icon(
-                                      onPressed: () => _abrirPdfOrcamento(ticket),
-                                      icon: const Icon(Icons.picture_as_pdf, size: 14),
-                                      label: const Text('Orçamento'),
-                                      style: OutlinedButton.styleFrom(
-                                        foregroundColor: const Color(0xFF0A369D),
-                                        side: const BorderSide(color: Color(0xFFBFDBFE)),
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                        textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-                                      ),
+                                  // Status Badge
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: statusColor.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(20),
                                     ),
-                                    const SizedBox(width: 8),
-                                  ],
-                                  if (ticket.status != "Concluído")
-                                    ElevatedButton.icon(
-                                      onPressed: () => _abrirAtendimento(ticket),
-                                      icon: const Icon(Icons.handyman_outlined, size: 16),
-                                      label: Text(ticket.status == "Pendente" ? "Iniciar Atendimento" : "Continuar Atendimento"),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(0xFF0A369D),
-                                        foregroundColor: Colors.white,
-                                        elevation: 0,
-                                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                      ),
-                                    )
-                                  else
-                                    OutlinedButton.icon(
-                                      onPressed: () {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(
-                                            content: Text('Relatório ATS já finalizado e enviado.'),
-                                            backgroundColor: _emerald,
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Container(
+                                          width: 6,
+                                          height: 6,
+                                          decoration: BoxDecoration(shape: BoxShape.circle, color: statusColor),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          ticket.status,
+                                          style: TextStyle(
+                                            color: statusColor,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
                                           ),
-                                        );
-                                      },
-                                      icon: const Icon(Icons.check, size: 16),
-                                      label: const Text("Finalizado"),
-                                      style: OutlinedButton.styleFrom(
-                                        foregroundColor: _emerald,
-                                        side: const BorderSide(color: _emerald),
-                                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                      ),
+                                        ),
+                                      ],
                                     ),
+                                  ),
+                                  const SizedBox(width: 8),
+
+                                  // Action Buttons (responsivo em Wrap)
+                                  Expanded(
+                                    child: Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      alignment: WrapAlignment.end,
+                                      crossAxisAlignment: WrapCrossAlignment.center,
+                                      children: [
+                                        if (ticket.defeitoRelatado != null || ticket.orcamentoPdfUrl != null)
+                                          OutlinedButton.icon(
+                                            onPressed: () => _abrirPdfOrcamento(ticket),
+                                            icon: const Icon(Icons.picture_as_pdf, size: 14),
+                                            label: const Text('Orçamento'),
+                                            style: OutlinedButton.styleFrom(
+                                              foregroundColor: const Color(0xFF0A369D),
+                                              side: const BorderSide(color: Color(0xFFBFDBFE)),
+                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                              textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                            ),
+                                          ),
+                                        if (ticket.status != 'Concluído')
+                                          ElevatedButton.icon(
+                                            onPressed: () => _abrirAtendimento(ticket),
+                                            icon: const Icon(Icons.handyman_outlined, size: 16),
+                                            label: Text(ticket.status == 'Pendente' ? 'Iniciar Atendimento' : 'Continuar Atendimento'),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: const Color(0xFF0A369D),
+                                              foregroundColor: Colors.white,
+                                              elevation: 0,
+                                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                            ),
+                                          )
+                                        else ...[
+                                          OutlinedButton.icon(
+                                            onPressed: () => _abrirPdfRelatorioFinal(ticket),
+                                            icon: const Icon(Icons.picture_as_pdf_rounded, size: 15),
+                                            label: Text('Finalizado v$versao'),
+                                            style: OutlinedButton.styleFrom(
+                                              foregroundColor: _emeraldDark,
+                                              backgroundColor: const Color(0xFFF0FDF4),
+                                              side: const BorderSide(color: Color(0xFF86EFAC)),
+                                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                              textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                            ),
+                                          ),
+                                          OutlinedButton.icon(
+                                            onPressed: () => _confirmarRefazerRelatorio(ticket),
+                                            icon: const Icon(Icons.edit_note_rounded, size: 16),
+                                            label: const Text('Refazer Relatório'),
+                                            style: OutlinedButton.styleFrom(
+                                              foregroundColor: const Color(0xFFD97706),
+                                              backgroundColor: const Color(0xFFFFFBEB),
+                                              side: const BorderSide(color: Color(0xFFFCD34D)),
+                                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                              textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
                                 ],
-                              ),
-                            ],
+                              );
+                            },
                           ),
                         ],
                       ),
@@ -1401,8 +1511,48 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
   }
 
   Future<void> _abrirPdfOrcamento(Ticket ticket) async {
-    final chamado = ChamadosService.instance.obterChamadoPorId(ticket.chamadoId ?? '') ??
-        ChamadosService.instance.obterChamadoPorNumeroAts(ticket.numeroAts ?? '') ??
+    final chamadoMemoria = ChamadosService.instance.obterChamadoPorId(ticket.chamadoId ?? '') ??
+        ChamadosService.instance.obterChamadoPorNumeroAts(ticket.numeroAts ?? '');
+
+    final pdfUrl = (ticket.orcamentoPdfUrl != null && ticket.orcamentoPdfUrl!.trim().isNotEmpty)
+        ? ticket.orcamentoPdfUrl!.trim()
+        : chamadoMemoria?.orcamentoPdfUrl?.trim();
+
+    if (pdfUrl != null && pdfUrl.startsWith('http') && !pdfUrl.contains('storage.local')) {
+      try {
+        final uri = Uri.parse(pdfUrl);
+        var launched = await launchUrl(
+          uri,
+          webOnlyWindowName: '_blank',
+          mode: LaunchMode.externalApplication,
+        );
+        if (!launched) {
+          launched = await launchUrl(
+            uri,
+            webOnlyWindowName: '_blank',
+            mode: LaunchMode.platformDefault,
+          );
+        }
+        if (launched) return;
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('[TecnicoDashboard] Erro ao abrir URL do orçamento, tentando fallback: $e');
+        }
+      }
+    }
+
+    Uint8List? pdfBytes;
+    if (pdfUrl != null && pdfUrl.contains('/orcamentos/')) {
+      try {
+        final path = pdfUrl.split('/orcamentos/').last.split('?').first;
+        final downloaded = await Supabase.instance.client.storage.from('orcamentos').download(path);
+        if (downloaded.isNotEmpty) {
+          pdfBytes = downloaded;
+        }
+      } catch (_) {}
+    }
+
+    final chamado = chamadoMemoria ??
         Chamado(
           id: ticket.chamadoId ?? ticket.id,
           numeroAts: ticket.numeroAts ?? ticket.id.replaceAll('ATS-', ''),
@@ -1418,18 +1568,154 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
           aceiteData: DateTime.now(),
         );
 
-    final dummySignature = List<int>.generate(80, (i) => 255);
-    final pdfBytes = await OrcamentoPdfService.generatePdf(
+    pdfBytes ??= await OrcamentoPdfService.generatePdf(
       chamado: chamado,
-      signatureBytes: Uint8List.fromList(dummySignature),
+      signatureBytes: await _obterAssinaturaBytes(chamado.assinaturaUrl),
       responsavelNome: chamado.responsavelAceiteNome ?? 'Cliente',
       responsavelCargo: chamado.responsavelAceiteCargo ?? 'Responsável',
     );
 
     await Printing.layoutPdf(
-      onLayout: (_) => pdfBytes,
+      onLayout: (_) => pdfBytes!,
       name: 'Orcamento_${ticket.id}.pdf',
     );
+  }
+
+  Future<void> _abrirPdfRelatorioFinal(Ticket ticket) async {
+    try {
+      final chamadoMemoria = ChamadosService.instance.obterChamadoPorId(ticket.chamadoId ?? '') ??
+          ChamadosService.instance.obterChamadoPorNumeroAts(ticket.numeroAts ?? '');
+
+      final versao = ticket.relatorioVersao > 0
+          ? ticket.relatorioVersao
+          : ((chamadoMemoria?.relatorioVersao ?? 0) > 0 ? chamadoMemoria!.relatorioVersao : 1);
+
+      final relatorioUrl = (ticket.relatorioPdfUrl != null && ticket.relatorioPdfUrl!.trim().isNotEmpty)
+          ? ticket.relatorioPdfUrl!.trim()
+          : chamadoMemoria?.relatorioPdfUrl?.trim();
+
+      if (relatorioUrl != null &&
+          relatorioUrl.startsWith('http') &&
+          !relatorioUrl.contains('storage.local')) {
+        try {
+          final uri = Uri.parse(relatorioUrl);
+          var launched = await launchUrl(
+            uri,
+            webOnlyWindowName: '_blank',
+            mode: LaunchMode.externalApplication,
+          );
+          if (!launched) {
+            launched = await launchUrl(
+              uri,
+              webOnlyWindowName: '_blank',
+              mode: LaunchMode.platformDefault,
+            );
+          }
+          if (launched) return;
+        } catch (e) {
+          if (kDebugMode) {
+            debugPrint('[TecnicoDashboard] Erro ao abrir URL do relatório final, tentando fallback: $e');
+          }
+        }
+      }
+
+      Uint8List? pdfBytes;
+      if (relatorioUrl != null && relatorioUrl.contains('/orcamentos/')) {
+        try {
+          final path = relatorioUrl.split('/orcamentos/').last.split('?').first;
+          final downloaded = await Supabase.instance.client.storage.from('orcamentos').download(path);
+          if (downloaded.isNotEmpty) {
+            pdfBytes = downloaded;
+          }
+        } catch (_) {}
+      }
+
+      if (pdfBytes == null) {
+        final chamado = chamadoMemoria ??
+            Chamado(
+              id: ticket.chamadoId ?? ticket.id,
+              numeroAts: ticket.numeroAts ?? ticket.id.replaceAll('ATS-', ''),
+              razaoSocial: ticket.companyName,
+              modeloMaquina: ticket.machineModel,
+              defeitoRelatado: ticket.defeitoRelatado,
+              endereco: ticket.address,
+              tokenUrl: const Uuid().v4(),
+              status: ChamadoStatus.finalizado,
+              relatorioVersao: versao,
+            );
+
+        List<DiaTrabalho> dias = chamado.diasTrabalho;
+        if (dias.isEmpty && chamado.id.isNotEmpty) {
+          try {
+            final diasRes = await Supabase.instance.client
+                .from('ats_dias_trabalho')
+                .select()
+                .eq('chamado_id', chamado.id)
+                .order('data', ascending: true);
+            if (diasRes.isNotEmpty) {
+              dias = (diasRes as List)
+                  .map((d) => DiaTrabalho.fromMap(Map<String, dynamic>.from(d as Map)))
+                  .toList();
+            }
+          } catch (_) {}
+        }
+
+        final logHoras = LogHorasCustos(
+          id: 'log-${DateTime.now().millisecondsSinceEpoch}',
+          idChamado: chamado.id,
+          data: dias.isNotEmpty ? dias.first.data : DateTime.now(),
+          horaInicio: dias.isNotEmpty ? dias.first.horaInicio : '08:00',
+          horaFim: dias.isNotEmpty ? (dias.first.horaFim ?? '17:00') : '17:00',
+          kmRodado: chamado.kmEstimado ?? 0.0,
+        );
+
+        pdfBytes = await AtsPdfService.instance.gerarRelatorioAtsPdf(
+          chamado: chamado,
+          logHoras: logHoras,
+          diasTrabalho: dias,
+          servicoExecutado: (chamado.servicoExecutado != null && chamado.servicoExecutado!.trim().isNotEmpty)
+              ? chamado.servicoExecutado!.trim()
+              : 'Atendimento técnico concluído.',
+          assinaturaBytes: await _obterAssinaturaBytes(chamado.assinaturaUrl),
+          responsavelNome: chamado.responsavelAceiteNome ?? 'Cliente Responsável',
+          videoUrl: chamado.videoUrl,
+          versao: versao,
+        );
+      }
+
+      await Printing.layoutPdf(
+        onLayout: (_) => pdfBytes!,
+        name: 'Relatorio_${ticket.id}_v$versao.pdf',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao abrir relatório finalizado: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<Uint8List> _obterAssinaturaBytes(String? assinaturaUrl) async {
+    if (assinaturaUrl != null && assinaturaUrl.isNotEmpty && !assinaturaUrl.contains('storage.local')) {
+      try {
+        String path = assinaturaUrl;
+        if (path.contains('/orcamentos/')) {
+          path = path.split('/orcamentos/').last.split('?').first;
+        }
+        final downloaded = await Supabase.instance.client.storage.from('orcamentos').download(path);
+        if (downloaded.isNotEmpty) return downloaded;
+      } catch (_) {}
+    }
+    return Uint8List.fromList([
+      137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1,
+      0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 11, 73, 68, 65, 84,
+      120, 1, 99, 96, 0, 0, 0, 2, 0, 1, 244, 113, 100, 166, 0, 0, 0, 0, 73, 69,
+      78, 68, 174, 66, 96, 130
+    ]);
   }
 }
 

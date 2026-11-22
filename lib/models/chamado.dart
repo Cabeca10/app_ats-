@@ -36,11 +36,11 @@ class ChamadoStatus {
 class Chamado {
   /// Projeção mínima para listagens leves (redução estrita de tráfego AppSec)
   static const String selectColumnsMinimas = 
-      'id, numero_ats, razao_social, status, token_url, modelo_maquina, fabricante, numero_serie, defeito_relatado, endereco, telefone, created_at';
+      'id, numero_ats, razao_social, status, token_url, modelo_maquina, fabricante, numero_serie, defeito_relatado, endereco, telefone, orcamento_pdf_url, relatorio_pdf_url, relatorio_versao, created_at';
 
   /// Projeção completa para detalhes do chamado
   static const String selectColumnsCompletas = 
-      'id, numero_ats, razao_social, cnpj, inscricao_estadual, telefone, cliente_email, email_cliente, endereco, cidade, contato, tipo_atendimento, fabricante, modelo_maquina, numero_serie, defeito_relatado, servico_executado, token_url, status, taxa_horaria_comercial, taxa_horaria_extra, taxa_horaria_especial, taxa_km, km_estimado, hora_viagem_estimada, valor_estimado_total, termos_aceitos, aceite_data, responsavel_aceite_nome, responsavel_aceite_cargo, assinatura_url, orcamento_pdf_url, tecnico_id, tecnico_nome, tecnico2_id, tecnico2_nome, created_at, updated_at';
+      'id, numero_ats, razao_social, cnpj, inscricao_estadual, telefone, cliente_email, email_cliente, endereco, cidade, contato, tipo_atendimento, fabricante, modelo_maquina, numero_serie, defeito_relatado, servico_executado, token_url, status, taxa_horaria_comercial, taxa_horaria_extra, taxa_horaria_especial, taxa_km, km_estimado, hora_viagem_estimada, valor_estimado_total, termos_aceitos, aceite_data, responsavel_aceite_nome, responsavel_aceite_cargo, assinatura_url, orcamento_pdf_url, relatorio_pdf_url, relatorio_versao, tecnico_id, tecnico_nome, tecnico2_id, tecnico2_nome, created_at, updated_at';
 
   final String id;
   final String numeroAts;
@@ -89,6 +89,8 @@ class Chamado {
   final String? assinaturaUrl;
   final String? orcamentoPdfUrl;
   String? get pdfUrl => orcamentoPdfUrl;
+  final String? relatorioPdfUrl;
+  final int relatorioVersao;
 
   // Mídia adicional e sincronização offline-first
   final String? videoUrl;
@@ -145,6 +147,8 @@ class Chamado {
     this.responsavelAceiteCargo,
     this.assinaturaUrl,
     this.orcamentoPdfUrl,
+    this.relatorioPdfUrl,
+    this.relatorioVersao = 0,
     this.videoUrl,
     this.pendingSync = false,
     this.tecnicoId,
@@ -197,6 +201,8 @@ class Chamado {
     String? responsavelAceiteCargo,
     String? assinaturaUrl,
     String? orcamentoPdfUrl,
+    String? relatorioPdfUrl,
+    int? relatorioVersao,
     String? videoUrl,
     bool? pendingSync,
     String? tecnicoId,
@@ -242,6 +248,8 @@ class Chamado {
       responsavelAceiteCargo: responsavelAceiteCargo ?? this.responsavelAceiteCargo,
       assinaturaUrl: assinaturaUrl ?? this.assinaturaUrl,
       orcamentoPdfUrl: orcamentoPdfUrl ?? this.orcamentoPdfUrl,
+      relatorioPdfUrl: relatorioPdfUrl ?? this.relatorioPdfUrl,
+      relatorioVersao: relatorioVersao ?? this.relatorioVersao,
       videoUrl: videoUrl ?? this.videoUrl,
       pendingSync: pendingSync ?? this.pendingSync,
       tecnicoId: tecnicoId ?? this.tecnicoId,
@@ -292,6 +300,8 @@ class Chamado {
       'assinatura_url': assinaturaUrl,
       'orcamento_pdf_url': orcamentoPdfUrl,
       'pdf_url': orcamentoPdfUrl,
+      'relatorio_pdf_url': relatorioPdfUrl,
+      'relatorio_versao': relatorioVersao,
       'video_url': videoUrl,
       'pending_sync': pendingSync,
       'tecnico_id': tecnicoId,
@@ -343,6 +353,8 @@ class Chamado {
       'assinatura_url': assinaturaUrl,
       'orcamento_pdf_url': orcamentoPdfUrl,
       'pdf_url': orcamentoPdfUrl,
+      'relatorio_pdf_url': relatorioPdfUrl,
+      'relatorio_versao': relatorioVersao,
       'tecnico_id': tecnicoId,
       'tecnico_nome': tecnicoNome,
       'tecnico2_id': tecnico2Id,
@@ -387,6 +399,8 @@ class Chamado {
       responsavelAceiteCargo: map['responsavel_aceite_cargo']?.toString(),
       assinaturaUrl: map['assinatura_url']?.toString(),
       orcamentoPdfUrl: (map['orcamento_pdf_url'] ?? map['pdf_url'])?.toString(),
+      relatorioPdfUrl: map['relatorio_pdf_url']?.toString(),
+      relatorioVersao: (map['relatorio_versao'] as num?)?.toInt() ?? 0,
       videoUrl: map['video_url']?.toString(),
       pendingSync: map['pending_sync'] == true,
       tecnicoId: map['tecnico_id']?.toString(),

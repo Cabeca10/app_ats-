@@ -16,12 +16,14 @@ class AtsFormScreen extends StatefulWidget {
   final Ticket? ticket;
   final Chamado? chamado;
   final bool isEmbedded;
+  final bool isRevisao;
 
   const AtsFormScreen({
     super.key,
     this.ticket,
     this.chamado,
     this.isEmbedded = false,
+    this.isRevisao = false,
   });
 
   @override
@@ -63,9 +65,14 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
   // 3. Serviço Executado
   final _servicoExecutadoCtrl = TextEditingController();
 
-  // 4. Assinatura
+  // 4. Assinatura e Versionamento
   late final SignatureController _signatureController;
   final _responsavelNomeCtrl = TextEditingController();
+  int _versaoRelatorioAtual = 0;
+  String? _relatorioPdfUrlAnterior;
+  String? _assinaturaUrlAnterior;
+
+  int get _proximaVersaoRelatorio => _versaoRelatorioAtual > 0 ? _versaoRelatorioAtual + 1 : 1;
 
   @override
   void initState() {
@@ -93,6 +100,9 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       _numeroSerie = c.numeroSerie ?? 'N/A';
       _defeitoRelatado = c.defeitoRelatado ?? 'Nenhum defeito cadastrado';
       _responsavelNomeCtrl.text = c.responsavelAceiteNome ?? '';
+      _versaoRelatorioAtual = c.relatorioVersao;
+      _relatorioPdfUrlAnterior = c.relatorioPdfUrl;
+      _assinaturaUrlAnterior = c.assinaturaUrl;
       if (c.servicoExecutado != null && c.servicoExecutado!.trim().isNotEmpty) {
         _servicoExecutadoCtrl.text = c.servicoExecutado!.trim();
       }
@@ -107,6 +117,8 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       _fabricante = 'N/A';
       _numeroSerie = 'N/A';
       _defeitoRelatado = t.defeitoRelatado ?? 'Anomalia informada pelo solicitante';
+      _versaoRelatorioAtual = t.relatorioVersao;
+      _relatorioPdfUrlAnterior = t.relatorioPdfUrl;
 
       // Tenta recuperar do ChamadosService em memória se disponível
       final cMemoria = ChamadosService.instance.obterChamadoPorNumeroAts(_numeroAts) ??
@@ -115,6 +127,11 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         _chamadoId = cMemoria.id;
         _tipoAtendimento = cMemoria.tipoAtendimento;
         _emailCliente = cMemoria.emailCliente ?? _emailCliente;
+        if (cMemoria.relatorioVersao > 0) {
+          _versaoRelatorioAtual = cMemoria.relatorioVersao;
+        }
+        _relatorioPdfUrlAnterior ??= cMemoria.relatorioPdfUrl;
+        _assinaturaUrlAnterior ??= cMemoria.assinaturaUrl;
         if (cMemoria.servicoExecutado != null && cMemoria.servicoExecutado!.trim().isNotEmpty) {
           _servicoExecutadoCtrl.text = cMemoria.servicoExecutado!.trim();
         }
@@ -130,6 +147,10 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       _fabricante = '';
       _numeroSerie = '';
       _defeitoRelatado = '';
+    }
+
+    if (widget.isRevisao && _versaoRelatorioAtual <= 0) {
+      _versaoRelatorioAtual = 1;
     }
 
     // Inicializa lista de dias trabalhados
@@ -271,14 +292,14 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       if (_chamadoId.isNotEmpty && !_chamadoId.startsWith('c-')) {
         chamadoRes = await client
             .from('chamados')
-            .select('id, servico_executado, responsavel_aceite_nome, tipo_atendimento, email_cliente, cliente_email')
+            .select('id, servico_executado, responsavel_aceite_nome, tipo_atendimento, email_cliente, cliente_email, relatorio_pdf_url, relatorio_versao, assinatura_url')
             .eq('id', _chamadoId)
             .maybeSingle();
       }
       if (chamadoRes == null && _numeroAts.isNotEmpty) {
         chamadoRes = await client
             .from('chamados')
-            .select('id, servico_executado, responsavel_aceite_nome, tipo_atendimento, email_cliente, cliente_email')
+            .select('id, servico_executado, responsavel_aceite_nome, tipo_atendimento, email_cliente, cliente_email, relatorio_pdf_url, relatorio_versao, assinatura_url')
             .eq('numero_ats', _numeroAts)
             .maybeSingle();
       }
@@ -291,6 +312,19 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         final responsavelCloud = chamadoRes['responsavel_aceite_nome']?.toString();
         final tipoCloud = chamadoRes['tipo_atendimento']?.toString();
         final emailCloud = (chamadoRes['email_cliente'] ?? chamadoRes['cliente_email'])?.toString();
+        final relatorioPdfCloud = chamadoRes['relatorio_pdf_url']?.toString();
+        final relatorioVersaoCloud = (chamadoRes['relatorio_versao'] as num?)?.toInt() ?? 0;
+        final assinaturaCloud = chamadoRes['assinatura_url']?.toString();
+
+        if (relatorioPdfCloud != null && relatorioPdfCloud.trim().isNotEmpty) {
+          _relatorioPdfUrlAnterior = relatorioPdfCloud.trim();
+        }
+        if (relatorioVersaoCloud > 0) {
+          _versaoRelatorioAtual = relatorioVersaoCloud;
+        }
+        if (assinaturaCloud != null && assinaturaCloud.trim().isNotEmpty) {
+          _assinaturaUrlAnterior = assinaturaCloud.trim();
+        }
 
         if (servicoCloud != null && servicoCloud.trim().isNotEmpty) {
           _servicoExecutadoCtrl.text = servicoCloud.trim();
@@ -332,6 +366,8 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
             .from('log_horas_custos')
             .select()
             .eq('id_chamado', _chamadoId)
+            .order('updated_at', ascending: false)
+            .limit(1)
             .maybeSingle();
 
         if (logRes != null) {
@@ -444,10 +480,10 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       try {
         final client = Supabase.instance.client;
 
-        // Atualiza chamado mantendo status em andamento
+        // Atualiza chamado mantendo status atual (sem rebaixar finalizado durante revisão)
         final chamadoUpdate = <String, dynamic>{
           'servico_executado': _servicoExecutadoCtrl.text.trim(),
-          'status': ChamadoStatus.emAtendimento,
+          'status': widget.isRevisao ? ChamadoStatus.finalizado : ChamadoStatus.emAtendimento,
           'tipo_atendimento': _tipoAtendimento,
           'responsavel_aceite_nome': _responsavelNomeCtrl.text.trim(),
           'updated_at': DateTime.now().toIso8601String(),
@@ -674,7 +710,9 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         numeroAts: _numeroAts,
         chamadoId: _chamadoId,
         responsavelNome: _responsavelNomeCtrl.text.trim(),
-        defeitoRelatado: _servicoExecutadoCtrl.text.trim(),
+        defeitoRelatado: _defeitoRelatado,
+        servicoExecutado: _servicoExecutadoCtrl.text.trim(),
+        relatorioVersao: _proximaVersaoRelatorio,
         razaoSocial: _razaoSocial,
       );
 
@@ -731,10 +769,14 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
     try {
       final client = Supabase.instance.client;
       final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final int novaVersao = widget.isRevisao
+          ? (_versaoRelatorioAtual > 0 ? _versaoRelatorioAtual + 1 : 2)
+          : (_versaoRelatorioAtual > 0 ? _versaoRelatorioAtual + 1 : 1);
+      final cleanAts = _numeroAts.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
 
       // A. Upload da assinatura (apenas buffer PNG codificado, bloqueando .svg)
       String? assinaturaUrl;
-      final sigPath = 'assinaturas/ats_${_numeroAts}_$timestamp.png';
+      final sigPath = 'assinaturas/ats_${cleanAts}_v${novaVersao}_$timestamp.png';
       if (sigPath.toLowerCase().endsWith('.svg')) {
         throw Exception('Upload de arquivos SVG é bloqueado por diretrizes de segurança.');
       }
@@ -768,6 +810,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
               tipoAtendimento: _tipoAtendimento,
               servicoExecutado: _servicoExecutadoCtrl.text.trim(),
               responsavelAceiteNome: _responsavelNomeCtrl.text.trim(),
+              relatorioVersao: novaVersao,
               status: ChamadoStatus.finalizado,
             )
           : Chamado(
@@ -780,6 +823,8 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
               fabricante: _fabricante,
               numeroSerie: _numeroSerie,
               defeitoRelatado: _defeitoRelatado,
+              servicoExecutado: _servicoExecutadoCtrl.text.trim(),
+              relatorioVersao: novaVersao,
               tokenUrl: _chamadoId,
               status: ChamadoStatus.finalizado,
             );
@@ -792,11 +837,12 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         assinaturaBytes: assinaturaBytes,
         responsavelNome: _responsavelNomeCtrl.text.trim(),
         videoUrl: videoUrl,
+        versao: novaVersao,
       );
 
-      // D. Upload do PDF finalizado para o Storage
+      // D. Upload do PDF finalizado versionado (v1, v2, ...) para o Storage
       String? pdfUrl;
-      final pdfPath = 'relatorios_ats/ats_${_numeroAts}_final.pdf';
+      final pdfPath = 'relatorios_ats/ats_${cleanAts}_v$novaVersao.pdf';
       try {
         await client.storage.from('orcamentos').uploadBinary(
               pdfPath,
@@ -818,12 +864,13 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         }
       }
 
-      // E. UPDATE na tabela chamados alterando status para 'finalizado'
+      // E. UPDATE na tabela chamados atualizando relatório final (sem sobrescrever orcamento_pdf_url)
       final updateData = <String, dynamic>{
         'status': ChamadoStatus.finalizado,
         'tipo_atendimento': _tipoAtendimento,
-        'assinatura_url': assinaturaUrl,
-        if (pdfUrl != null) 'orcamento_pdf_url': pdfUrl,
+        if (assinaturaUrl != null) 'assinatura_url': assinaturaUrl,
+        if (pdfUrl != null) 'relatorio_pdf_url': pdfUrl,
+        'relatorio_versao': novaVersao,
         'servico_executado': _servicoExecutadoCtrl.text.trim(),
         'termos_aceitos': true,
         'responsavel_aceite_nome': _responsavelNomeCtrl.text.trim(),
@@ -837,9 +884,60 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         await client.from('chamados').update(updateData).eq('numero_ats', _numeroAts);
       }
 
-      // F. INSERT na tabela log_horas_custos (com colunas estritas)
+      // E.1 Somente após upload do novo PDF e UPDATE no banco, remove o PDF e assinatura ATS anteriores
+      if (pdfUrl != null) {
+        try {
+          final oldPaths = <String>{};
+          String? extractPath(String? url) {
+            if (url == null || url.trim().isEmpty || !url.contains('/orcamentos/')) {
+              return null;
+            }
+            var p = url.split('/orcamentos/').last.split('?').first;
+            try {
+              p = Uri.decodeFull(p);
+            } catch (_) {}
+            p = p.replaceFirst(RegExp(r'^/+'), '').trim();
+            return p.isEmpty ? null : p;
+          }
+
+          final prevRelPath = extractPath(_relatorioPdfUrlAnterior);
+          if (prevRelPath != null && prevRelPath != pdfPath) {
+            oldPaths.add(prevRelPath);
+          }
+
+          const legacyRawPrefix = 'relatorios_ats/ats_';
+          final legacyFinal = '$legacyRawPrefix${cleanAts}_final.pdf';
+          if (legacyFinal != pdfPath) {
+            oldPaths.add(legacyFinal);
+          }
+          if (novaVersao > 1) {
+            final prevVerPath = 'relatorios_ats/ats_${cleanAts}_v${novaVersao - 1}.pdf';
+            if (prevVerPath != pdfPath) {
+              oldPaths.add(prevVerPath);
+            }
+          }
+
+          final prevSigPath = extractPath(_assinaturaUrlAnterior);
+          if (prevSigPath != null &&
+              prevSigPath.startsWith('assinaturas/ats_') &&
+              prevSigPath != sigPath) {
+            oldPaths.add(prevSigPath);
+          }
+
+          if (oldPaths.isNotEmpty) {
+            await client.storage.from('orcamentos').remove(oldPaths.toList());
+          }
+        } catch (delErr) {
+          if (kDebugMode) {
+            debugPrint('[AtsForm] Aviso ao remover versão anterior no Storage: $delErr');
+          }
+        }
+      }
+
+      // F. INSERT na tabela log_horas_custos (substituindo registro anterior para evitar duplicidade)
       try {
         if (_chamadoId.isNotEmpty && !_chamadoId.startsWith('c-')) {
+          await client.from('log_horas_custos').delete().eq('id_chamado', _chamadoId);
           await client.from('log_horas_custos').insert({
             'id_chamado': _chamadoId,
             'data': '${dataAtendimento.year.toString().padLeft(4, '0')}-${dataAtendimento.month.toString().padLeft(2, '0')}-${dataAtendimento.day.toString().padLeft(2, '0')}',
@@ -885,13 +983,16 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       // G. Marca sincronizado localmente
       await OfflineStorageService.instance.marcarSincronizado(_chamadoId);
 
-      // H. Atualiza estado em memória
+      // H. Atualiza estado em memória (preservando defeitoRelatado e salvando servicoExecutado + relatório versionado)
       await ChamadosService.instance.finalizarChamado(
         numeroAts: _numeroAts,
         chamadoId: _chamadoId,
         assinaturaUrl: assinaturaUrl ?? '',
         responsavelNome: _responsavelNomeCtrl.text.trim(),
-        defeitoRelatado: _servicoExecutadoCtrl.text.trim(),
+        defeitoRelatado: _defeitoRelatado,
+        servicoExecutado: _servicoExecutadoCtrl.text.trim(),
+        relatorioPdfUrl: pdfUrl,
+        relatorioVersao: novaVersao,
         razaoSocial: _razaoSocial,
         endereco: _endereco,
         modeloMaquina: _modeloMaquina,
@@ -899,11 +1000,20 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
 
       if (!mounted) return;
       Navigator.pop(context); // Fecha diálogo de carregamento
-      setState(() => _isSubmitting = false);
+      setState(() {
+        _versaoRelatorioAtual = novaVersao;
+        if (pdfUrl != null) _relatorioPdfUrlAnterior = pdfUrl;
+        if (assinaturaUrl != null) _assinaturaUrlAnterior = assinaturaUrl;
+        _isSubmitting = false;
+      });
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('ATS Nº $_numeroAts finalizada e sincronizada com sucesso!'),
+          content: Text(
+            novaVersao > 1
+                ? 'ATS Nº $_numeroAts atualizada para Finalizado v$novaVersao (versão anterior removida)!'
+                : 'ATS Nº $_numeroAts salva como Finalizado v$novaVersao!',
+          ),
           backgroundColor: const Color(0xFF10B981),
           behavior: SnackBarBehavior.floating,
         ),
@@ -999,6 +1109,39 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
                 const SizedBox(height: 12),
               ],
               // -------------------------------------------------------------
+              // BANNER DE REVISÃO (REFAZER RELATÓRIO)
+              // -------------------------------------------------------------
+              if (widget.isRevisao) ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFFBEB),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFFCD34D)),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.edit_note_rounded, color: Color(0xFFD97706), size: 22),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Modo Revisão — Finalizado v$_proximaVersaoRelatorio: Ajuste o relatório e colete a nova assinatura do cliente. Ao finalizar, o relatório Finalizado v$_proximaVersaoRelatorio substituirá e apagará o Finalizado v${_versaoRelatorioAtual > 0 ? _versaoRelatorioAtual : 1}.',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF92400E),
+                            fontWeight: FontWeight.w600,
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+
+              // -------------------------------------------------------------
               // SEÇÃO 1: HEADER (DADOS DE LEITURA DO CLIENTE / ATS)
               // -------------------------------------------------------------
               _buildCardHeader(),
@@ -1045,7 +1188,9 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
                         )
                       : const Icon(Icons.check_circle_outline, size: 20),
                   label: Text(
-                    _isSubmitting ? 'Processando Atendimento...' : 'Finalizar Atendimento ATS',
+                    widget.isRevisao
+                        ? (_isSubmitting ? 'Processando Revisão...' : 'Assinar e Finalizar (v$_proximaVersaoRelatorio)')
+                        : (_isSubmitting ? 'Processando Atendimento...' : 'Finalizar Atendimento ATS (v$_proximaVersaoRelatorio)'),
                     style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                   style: ElevatedButton.styleFrom(
