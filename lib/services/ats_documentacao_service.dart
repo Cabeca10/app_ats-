@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 import '../models/ats_documentacao.dart';
 import 'offline_storage_service.dart';
 
@@ -32,8 +33,9 @@ class AtsDocumentacaoService {
     if (safeName.isEmpty) {
       safeName = isPng ? 'foto.png' : 'foto.jpg';
     }
+    final uniqueSuffix = const Uuid().v4().substring(0, 8);
     final remotePath =
-        'documentacoes/${chamadoId}_${DateTime.now().millisecondsSinceEpoch}_$safeName';
+        'documentacoes/${chamadoId}_${DateTime.now().millisecondsSinceEpoch}_${uniqueSuffix}_$safeName';
 
     final client = Supabase.instance.client;
     await client.storage.from('orcamentos').uploadBinary(

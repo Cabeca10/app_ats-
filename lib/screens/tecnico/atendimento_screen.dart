@@ -58,6 +58,8 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
   bool _carregandoDoc = true;
   bool _salvandoDoc = false;
   bool _enviandoFoto = false;
+  int _uploadAtual = 0;
+  int _uploadTotal = 0;
   bool _pendingSyncDoc = false;
 
   final ImagePicker _picker = ImagePicker();
@@ -177,56 +179,121 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
     }
   }
 
-  Future<void> _adicionarFoto(ImageSource source) async {
+  Future<void> _adicionarFotoCamera() async {
     try {
       final picked = await _picker.pickImage(
-        source: source,
+        source: ImageSource.camera,
         imageQuality: 80,
         maxWidth: 1920,
       );
 
-      if (picked == null) return;
-
-      final fileName = picked.name.trim().isNotEmpty
-          ? picked.name.trim()
-          : 'foto_${DateTime.now().millisecondsSinceEpoch}.jpg';
-
-      if (fileName.toLowerCase().endsWith('.svg')) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Formato SVG não é permitido por segurança.'),
-              backgroundColor: Colors.redAccent,
-            ),
-          );
-        }
-        return;
+      if (picked != null) {
+        await _processarArquivosSelecionados([picked]);
       }
-
-      final bytes = await picked.readAsBytes();
+    } catch (e) {
+      debugPrint('[AtendimentoScreen] Erro ao capturar foto pela câmera: $e');
       if (mounted) {
-        setState(() => _enviandoFoto = true);
-      }
-
-      String? uploadedUrl;
-      try {
-        uploadedUrl = await AtsDocumentacaoService.instance.uploadFotoBytes(
-          chamadoId: _chamadoId,
-          bytes: bytes,
-          fileName: fileName,
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao abrir câmera: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
         );
-      } catch (upErr) {
-        debugPrint('[AtendimentoScreen] Aviso upload imediato da foto: $upErr');
       }
+    }
+  }
 
-      final newItem = FotoDocumentacaoItem(
-        url: uploadedUrl ?? '',
-        localPath: kIsWeb ? '' : picked.path,
-        categoria: _fotosEntries.isEmpty ? 'Alarme / Falha' : 'Serviço Realizado',
-        criadoEm: DateTime.now(),
+  Future<void> _adicionarFotosGaleria() async {
+    try {
+      final pickedList = await _picker.pickMultiImage(
+        imageQuality: 80,
+        maxWidth: 1920,
       );
 
+      if (pickedList.isNotEmpty) {
+        await _processarArquivosSelecionados(pickedList);
+      }
+    } catch (e) {
+      debugPrint('[AtendimentoScreen] Erro ao selecionar fotos da galeria: $e');
       if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao selecionar fotos da galeria: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _processarArquivosSelecionados(List<XFile> arquivos) async {
+    final arquivosValidos = <XFile>[];
+    int svgIgnorados = 0;
+
+    for (final arquivo in arquivos) {
+      if (arquivo.name.trim().toLowerCase().endsWith('.svg')) {
+        svgIgnorados++;
+      } else {
+        arquivosValidos.add(arquivo);
+      }
+    }
+
+    if (svgIgnorados > 0 && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            svgIgnorados == 1
+                ? 'Formato SVG não é permitido por segurança.'
+                : '$svgIgnorados arquivos SVG ignorados (formato não permitido por segurança).',
+          ),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
+
+    if (arquivosValidos.isEmpty) return;
+
+    if (mounted) {
+      setState(() {
+        _enviandoFoto = true;
+        _uploadAtual = 0;
+        _uploadTotal = arquivosValidos.length;
+      });
+    }
+
+    int adicionadas = 0;
+
+    try {
+      for (int i = 0; i < arquivosValidos.length; i++) {
+        final picked = arquivosValidos[i];
+        if (!mounted) break;
+
+        setState(() => _uploadAtual = i + 1);
+
+        final bytes = await picked.readAsBytes();
+        final fileName = picked.name.trim().isNotEmpty
+            ? picked.name.trim()
+            : 'foto_${DateTime.now().millisecondsSinceEpoch}_${i + 1}.jpg';
+
+        String? uploadedUrl;
+        try {
+          uploadedUrl = await AtsDocumentacaoService.instance.uploadFotoBytes(
+            chamadoId: _chamadoId,
+            bytes: bytes,
+            fileName: fileName,
+          );
+        } catch (upErr) {
+          debugPrint('[AtendimentoScreen] Aviso upload imediato da foto $fileName: $upErr');
+        }
+
+        final newItem = FotoDocumentacaoItem(
+          url: uploadedUrl ?? '',
+          localPath: kIsWeb ? '' : picked.path,
+          categoria: _fotosEntries.isEmpty ? 'Alarme / Falha' : 'Serviço Realizado',
+          criadoEm: DateTime.now(),
+        );
+
+        if (!mounted) break;
         setState(() {
           _fotosEntries.add(
             _FotoDocEntry(
@@ -235,18 +302,37 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
               previewBytes: bytes,
             ),
           );
-          _enviandoFoto = false;
         });
-        await _salvarDocumentacao(silencioso: true);
+        adicionadas++;
       }
     } catch (e) {
-      debugPrint('[AtendimentoScreen] Erro ao capturar foto: $e');
+      debugPrint('[AtendimentoScreen] Erro ao processar fotos selecionadas: $e');
       if (mounted) {
-        setState(() => _enviandoFoto = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Erro ao adicionar foto: $e'),
+            content: Text('Erro ao adicionar foto(s): $e'),
             backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _enviandoFoto = false;
+          _uploadAtual = 0;
+          _uploadTotal = 0;
+        });
+      }
+    }
+
+    if (adicionadas > 0 && mounted) {
+      await _salvarDocumentacao(silencioso: true);
+      if (adicionadas > 1 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$adicionadas fotos adicionadas em sequência! Agora escreva a anotação abaixo de cada uma.'),
+            backgroundColor: const Color(0xFF10B981),
+            behavior: SnackBarBehavior.floating,
           ),
         );
       }
@@ -514,9 +600,11 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
                     children: [
                       Icon(Icons.edit_note_rounded, color: Color(0xFF0A369D), size: 22),
                       SizedBox(width: 8),
-                      Text(
-                        'Anotações Gerais e Ajustes (Estilo OneNote)',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                      Expanded(
+                        child: Text(
+                          'Anotações Gerais e Ajustes (Estilo OneNote)',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                        ),
                       ),
                     ],
                   ),
@@ -574,17 +662,20 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
                         children: [
                           const Icon(Icons.photo_library_outlined, color: Color(0xFF0A369D)),
                           const SizedBox(width: 8),
-                          Text(
-                            'Registro Fotográfico e Descritivo (${_fotosEntries.length})',
-                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                          Flexible(
+                            child: Text(
+                              'Registro Fotográfico e Descritivo (${_fotosEntries.length})',
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                            ),
                           ),
                         ],
                       ),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
                         children: [
                           ElevatedButton.icon(
-                            onPressed: _enviandoFoto ? null : () => _adicionarFoto(ImageSource.camera),
+                            onPressed: _enviandoFoto ? null : _adicionarFotoCamera,
                             icon: _enviandoFoto
                                 ? const SizedBox(
                                     width: 14,
@@ -599,11 +690,10 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                             ),
                           ),
-                          const SizedBox(width: 8),
                           OutlinedButton.icon(
-                            onPressed: _enviandoFoto ? null : () => _adicionarFoto(ImageSource.gallery),
-                            icon: const Icon(Icons.add_photo_alternate_outlined, size: 16),
-                            label: const Text('Galeria', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            onPressed: _enviandoFoto ? null : _adicionarFotosGaleria,
+                            icon: const Icon(Icons.collections_outlined, size: 16),
+                            label: const Text('Galeria (Várias)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                             style: OutlinedButton.styleFrom(
                               foregroundColor: const Color(0xFF0A369D),
                               side: const BorderSide(color: Color(0xFF93C5FD)),
@@ -616,9 +706,48 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
                   ),
                   const SizedBox(height: 6),
                   const Text(
-                    'Tire foto do alarme, painel ou serviço realizado e escreva logo abaixo de cada foto o que foi feito ali.',
+                    'Selecione várias fotos de uma só vez pela Galeria ou tire com a Câmera, e escreva logo abaixo de cada foto o que foi feito ali.',
                     style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
                   ),
+                  if (_enviandoFoto) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEFF6FF),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFFBFDBFE)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _uploadTotal > 1
+                                ? 'Enviando foto $_uploadAtual de $_uploadTotal...'
+                                : 'Enviando foto...',
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF1D4ED8),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: LinearProgressIndicator(
+                              value: _uploadTotal > 1
+                                  ? (_uploadAtual / _uploadTotal).clamp(0.0, 1.0)
+                                  : null,
+                              minHeight: 6,
+                              backgroundColor: const Color(0xFFDBEAFE),
+                              color: const Color(0xFF0A369D),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 14),
 
                   if (_fotosEntries.isEmpty)
@@ -642,7 +771,7 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
                         ],
                       ),
                     )
-                  else
+                  else ...[
                     Column(
                       children: _fotosEntries.asMap().entries.map((mapEntry) {
                         final index = mapEntry.key;
@@ -695,7 +824,7 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              // Cabeçalho do card da foto: número + categoria + data/hora + excluir
+                              // Cabeçalho do card da foto em 2 linhas para evitar cortes no celular
                               Row(
                                 children: [
                                   Container(
@@ -708,6 +837,28 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
                                       'Foto #${index + 1}',
                                       style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
                                     ),
+                                  ),
+                                  const Spacer(),
+                                  Text(
+                                    _docDateFormat.format(entry.item.criadoEm),
+                                    style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFDC2626), size: 20),
+                                    tooltip: 'Remover foto',
+                                    visualDensity: VisualDensity.compact,
+                                    onPressed: () => _removerFoto(index),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  const Icon(Icons.label_outline_rounded, size: 16, color: Color(0xFF64748B)),
+                                  const SizedBox(width: 6),
+                                  const Text(
+                                    'Categoria:',
+                                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF475569)),
                                   ),
                                   const SizedBox(width: 8),
                                   Expanded(
@@ -725,9 +876,9 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
                                           value: FotoDocumentacaoItem.categoriasPadrao.contains(entry.item.categoria)
                                               ? entry.item.categoria
                                               : FotoDocumentacaoItem.categoriasPadrao.first,
-                                          style: const TextStyle(fontSize: 12, color: Color(0xFF1E293B), fontWeight: FontWeight.w600),
+                                          style: const TextStyle(fontSize: 12.5, color: Color(0xFF1E293B), fontWeight: FontWeight.w600),
                                           items: FotoDocumentacaoItem.categoriasPadrao
-                                              .map((cat) => DropdownMenuItem(value: cat, child: Text(cat, overflow: TextOverflow.ellipsis)))
+                                              .map((cat) => DropdownMenuItem(value: cat, child: Text(cat)))
                                               .toList(),
                                           onChanged: (val) {
                                             if (val != null) {
@@ -739,17 +890,6 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
                                         ),
                                       ),
                                     ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    _docDateFormat.format(entry.item.criadoEm),
-                                    style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFDC2626), size: 20),
-                                    tooltip: 'Remover foto',
-                                    visualDensity: VisualDensity.compact,
-                                    onPressed: () => _removerFoto(index),
                                   ),
                                 ],
                               ),
@@ -803,8 +943,9 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
                                 minLines: 2,
                                 maxLines: 4,
                                 decoration: InputDecoration(
-                                  labelText: 'O que foi observado / realizado nesta foto (estilo OneNote)',
-                                  hintText: 'Ex: Alarme no servo acionador corrigido após troca do cabo encoder e teste de eixo.',
+                                  labelText: 'Anotação desta foto',
+                                  alignLabelWithHint: true,
+                                  hintText: 'Descreva o alarme, ajuste ou serviço realizado nesta foto...',
                                   hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 12),
                                   filled: true,
                                   fillColor: Colors.white,
@@ -828,6 +969,33 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
                         );
                       }).toList(),
                     ),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: _enviandoFoto ? null : _adicionarFotoCamera,
+                          icon: const Icon(Icons.camera_alt_outlined, size: 16),
+                          label: const Text('Tirar Foto', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFF0A369D),
+                            side: const BorderSide(color: Color(0xFF93C5FD)),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          ),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: _enviandoFoto ? null : _adicionarFotosGaleria,
+                          icon: const Icon(Icons.collections_outlined, size: 16),
+                          label: const Text('+ Adicionar Mais Fotos (Galeria)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFF0A369D),
+                            side: const BorderSide(color: Color(0xFF93C5FD)),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),

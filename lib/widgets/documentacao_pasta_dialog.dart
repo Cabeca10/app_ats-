@@ -392,12 +392,14 @@ class _DocumentacaoPastaDialogState extends State<DocumentacaoPastaDialog> {
                               children: [
                                 const Icon(Icons.photo_library_outlined, color: Color(0xFF0A369D), size: 20),
                                 const SizedBox(width: 8),
-                                Text(
-                                  'Registro Fotográfico e Descritivo (${itensFotos.length} ${itensFotos.length == 1 ? "foto" : "fotos"})',
-                                  style: const TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF0F172A),
+                                Expanded(
+                                  child: Text(
+                                    'Registro Fotográfico e Descritivo (${itensFotos.length} ${itensFotos.length == 1 ? "foto" : "fotos"})',
+                                    style: const TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF0F172A),
+                                    ),
                                   ),
                                 ),
                               ],
@@ -441,54 +443,67 @@ class _DocumentacaoPastaDialogState extends State<DocumentacaoPastaDialog> {
                                     child: Column(
                                       crossAxisAlignment: CrossAxisAlignment.stretch,
                                       children: [
-                                        Row(
+                                        Wrap(
+                                          spacing: 8,
+                                          runSpacing: 6,
+                                          alignment: WrapAlignment.spaceBetween,
+                                          crossAxisAlignment: WrapCrossAlignment.center,
                                           children: [
-                                            Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                              decoration: BoxDecoration(
-                                                color: const Color(0xFF0A369D),
-                                                borderRadius: BorderRadius.circular(6),
-                                              ),
-                                              child: Text(
-                                                'Foto #${idx + 1}',
-                                                style: const TextStyle(
-                                                  color: Colors.white,
-                                                  fontSize: 12,
-                                                  fontWeight: FontWeight.bold,
+                                            Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                                  decoration: BoxDecoration(
+                                                    color: const Color(0xFF0A369D),
+                                                    borderRadius: BorderRadius.circular(6),
+                                                  ),
+                                                  child: Text(
+                                                    'Foto #${idx + 1}',
+                                                    style: const TextStyle(
+                                                      color: Colors.white,
+                                                      fontSize: 12,
+                                                      fontWeight: FontWeight.bold,
+                                                    ),
+                                                  ),
                                                 ),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                              decoration: BoxDecoration(
-                                                color: const Color(0xFFEFF6FF),
-                                                borderRadius: BorderRadius.circular(6),
-                                                border: Border.all(color: const Color(0xFFBFDBFE)),
-                                              ),
-                                              child: Text(
-                                                item.categoria,
-                                                style: const TextStyle(
-                                                  color: Color(0xFF1D4ED8),
-                                                  fontSize: 11,
-                                                  fontWeight: FontWeight.w600,
+                                                const SizedBox(width: 8),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                  decoration: BoxDecoration(
+                                                    color: const Color(0xFFEFF6FF),
+                                                    borderRadius: BorderRadius.circular(6),
+                                                    border: Border.all(color: const Color(0xFFBFDBFE)),
+                                                  ),
+                                                  child: Text(
+                                                    item.categoria,
+                                                    style: const TextStyle(
+                                                      color: Color(0xFF1D4ED8),
+                                                      fontSize: 11,
+                                                      fontWeight: FontWeight.w600,
+                                                    ),
+                                                  ),
                                                 ),
-                                              ),
+                                              ],
                                             ),
-                                            const Spacer(),
-                                            Text(
-                                              _dateFormat.format(item.criadoEm),
-                                              style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                                            Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Text(
+                                                  _dateFormat.format(item.criadoEm),
+                                                  style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                                                ),
+                                                if (hasUrl) ...[
+                                                  const SizedBox(width: 4),
+                                                  IconButton(
+                                                    icon: const Icon(Icons.open_in_new, size: 18, color: Color(0xFF0A369D)),
+                                                    tooltip: 'Abrir imagem original em nova aba',
+                                                    visualDensity: VisualDensity.compact,
+                                                    onPressed: () => _abrirImagemNovaAba(item.url),
+                                                  ),
+                                                ],
+                                              ],
                                             ),
-                                            if (hasUrl) ...[
-                                              const SizedBox(width: 4),
-                                              IconButton(
-                                                icon: const Icon(Icons.open_in_new, size: 18, color: Color(0xFF0A369D)),
-                                                tooltip: 'Abrir imagem original em nova aba',
-                                                visualDensity: VisualDensity.compact,
-                                                onPressed: () => _abrirImagemNovaAba(item.url),
-                                              ),
-                                            ],
                                           ],
                                         ),
                                         const SizedBox(height: 10),
