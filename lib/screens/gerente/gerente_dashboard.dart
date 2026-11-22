@@ -1050,7 +1050,7 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                                 pastaLabel =
                                     'Abrir Pasta (${doc.totalFotos} ${doc.totalFotos == 1 ? "foto" : "fotos"})';
                                 temConteudoPasta = true;
-                              } else if (doc != null && doc.anotacoesCampo.trim().isNotEmpty) {
+                              } else if (doc != null && doc.possuiConteudo) {
                                 pastaLabel = 'Abrir Pasta (Notas)';
                                 temConteudoPasta = true;
                               } else {

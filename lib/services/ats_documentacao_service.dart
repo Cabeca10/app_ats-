@@ -88,24 +88,24 @@ class AtsDocumentacaoService {
 
         if (localDoc.pendingSync) {
           for (final localItem in localDoc.itensFotos) {
-            if (localItem.url.trim().isEmpty &&
-                localItem.localPath.trim().isNotEmpty &&
-                !mergedItens.any((r) => r.id == localItem.id)) {
+            final temPendenciaLocal = localItem.fotos.any(
+              (f) => f.url.trim().isEmpty && f.localPath.trim().isNotEmpty,
+            );
+            if (temPendenciaLocal && !mergedItens.any((r) => r.id == localItem.id)) {
               mergedItens.add(localItem);
             }
           }
         }
 
         final combinedUrls = mergedItens
-            .map((e) => e.url.trim())
-            .where((u) => u.isNotEmpty)
+            .expand((e) => e.urlsValidas)
             .toList();
 
         final atualizado = remoteDoc.copyWith(
           itensFotos: mergedItens,
           fotosUrls: combinedUrls.isNotEmpty ? combinedUrls : remoteDoc.fotosUrls,
           localFotosPaths: mergedItens
-              .map((e) => e.localPath)
+              .expand((e) => e.fotos.map((f) => f.localPath))
               .where((p) => p.trim().isNotEmpty)
               .toList(),
           pendingSync: false,
@@ -156,12 +156,11 @@ class AtsDocumentacaoService {
     bool remotoSucesso = false;
 
     List<String> extrairUrls() => itensAtualizados
-        .map((e) => e.url.trim())
-        .where((u) => u.isNotEmpty)
+        .expand((e) => e.urlsValidas)
         .toList();
 
     List<String> extrairLocalPaths() => itensAtualizados
-        .map((e) => e.localPath.trim())
+        .expand((e) => e.fotos.map((f) => f.localPath.trim()))
         .where((p) => p.isNotEmpty)
         .toList();
 
@@ -186,29 +185,40 @@ class AtsDocumentacaoService {
       if (!kIsWeb) {
         for (int i = 0; i < itensAtualizados.length; i++) {
           final item = itensAtualizados[i];
-          if (item.url.trim().isEmpty && item.localPath.trim().isNotEmpty) {
-            final file = File(item.localPath);
-            if (await file.exists()) {
-              final fileName = item.localPath.split(Platform.pathSeparator).last;
-              if (fileName.toLowerCase().endsWith('.svg')) {
-                continue;
-              }
-              try {
-                final bytes = await file.readAsBytes();
-                final publicUrl = await uploadFotoBytes(
-                  chamadoId: chamadoId,
-                  bytes: bytes,
-                  fileName: fileName,
-                );
-                if (publicUrl != null && publicUrl.isNotEmpty) {
-                  itensAtualizados[i] = item.copyWith(url: publicUrl);
+          final fotosAtualizadas = List<FotoMidiaItem>.from(item.fotos);
+          bool alterouFoto = false;
+
+          for (int j = 0; j < fotosAtualizadas.length; j++) {
+            final foto = fotosAtualizadas[j];
+            if (foto.url.trim().isEmpty && foto.localPath.trim().isNotEmpty) {
+              final file = File(foto.localPath);
+              if (await file.exists()) {
+                final fileName = foto.localPath.split(Platform.pathSeparator).last;
+                if (fileName.toLowerCase().endsWith('.svg')) {
+                  continue;
                 }
-              } catch (upErr) {
-                if (kDebugMode) {
-                  debugPrint('[AtsDocumentacaoService] Erro ao subir foto $fileName: $upErr');
+                try {
+                  final bytes = await file.readAsBytes();
+                  final publicUrl = await uploadFotoBytes(
+                    chamadoId: chamadoId,
+                    bytes: bytes,
+                    fileName: fileName,
+                  );
+                  if (publicUrl != null && publicUrl.isNotEmpty) {
+                    fotosAtualizadas[j] = foto.copyWith(url: publicUrl);
+                    alterouFoto = true;
+                  }
+                } catch (upErr) {
+                  if (kDebugMode) {
+                    debugPrint('[AtsDocumentacaoService] Erro ao subir foto $fileName: $upErr');
+                  }
                 }
               }
             }
+          }
+
+          if (alterouFoto) {
+            itensAtualizados[i] = item.copyWith(fotos: fotosAtualizadas);
           }
         }
       }

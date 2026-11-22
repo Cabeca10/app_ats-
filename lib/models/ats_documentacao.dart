@@ -1,6 +1,50 @@
 import 'package:uuid/uuid.dart';
 
-/// Item individual de registro fotográfico com anotação estilo OneNote
+/// Mídia fotográfica individual pertencente a um assunto/caixa da documentação
+class FotoMidiaItem {
+  final String url;
+  final String localPath;
+
+  const FotoMidiaItem({
+    this.url = '',
+    this.localPath = '',
+  });
+
+  bool get hasUrl => url.trim().isNotEmpty && url.startsWith('http');
+
+  FotoMidiaItem copyWith({
+    String? url,
+    String? localPath,
+  }) {
+    return FotoMidiaItem(
+      url: url ?? this.url,
+      localPath: localPath ?? this.localPath,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'url': url,
+      'local_path': localPath,
+    };
+  }
+
+  /// Mapa persistido no PostgreSQL (sem local_path de dispositivo)
+  Map<String, dynamic> toDatabaseMap() {
+    return {
+      'url': url,
+    };
+  }
+
+  factory FotoMidiaItem.fromMap(Map<String, dynamic> map) {
+    return FotoMidiaItem(
+      url: map['url']?.toString() ?? '',
+      localPath: map['local_path']?.toString() ?? '',
+    );
+  }
+}
+
+/// Bloco/Assunto de registro fotográfico com uma sequência de fotos e uma anotação estilo OneNote
 class FotoDocumentacaoItem {
   static const List<String> categoriasPadrao = [
     'Alarme / Falha',
@@ -10,34 +54,49 @@ class FotoDocumentacaoItem {
   ];
 
   final String id;
-  final String url;
-  final String localPath;
+  final String titulo;
+  final List<FotoMidiaItem> fotos;
   final String descricao;
   final String categoria;
   final DateTime criadoEm;
 
   FotoDocumentacaoItem({
     String? id,
-    this.url = '',
-    this.localPath = '',
+    this.titulo = '',
+    List<FotoMidiaItem>? fotos,
+    String url = '',
+    String localPath = '',
     this.descricao = '',
     this.categoria = 'Serviço Realizado',
     DateTime? criadoEm,
   })  : id = id ?? const Uuid().v4(),
+        fotos = fotos ??
+            ((url.trim().isNotEmpty || localPath.trim().isNotEmpty)
+                ? [FotoMidiaItem(url: url, localPath: localPath)]
+                : const []),
         criadoEm = criadoEm ?? DateTime.now();
+
+  /// URL da primeira foto (mantido para retrocompatibilidade)
+  String get url => fotos.isNotEmpty ? fotos.first.url : '';
+
+  /// Caminho local da primeira foto (mantido para retrocompatibilidade)
+  String get localPath => fotos.isNotEmpty ? fotos.first.localPath : '';
+
+  /// Lista de todas as URLs válidas desta caixa
+  List<String> get urlsValidas => fotos.map((f) => f.url.trim()).where((u) => u.isNotEmpty).toList();
 
   FotoDocumentacaoItem copyWith({
     String? id,
-    String? url,
-    String? localPath,
+    String? titulo,
+    List<FotoMidiaItem>? fotos,
     String? descricao,
     String? categoria,
     DateTime? criadoEm,
   }) {
     return FotoDocumentacaoItem(
       id: id ?? this.id,
-      url: url ?? this.url,
-      localPath: localPath ?? this.localPath,
+      titulo: titulo ?? this.titulo,
+      fotos: fotos ?? this.fotos,
       descricao: descricao ?? this.descricao,
       categoria: categoria ?? this.categoria,
       criadoEm: criadoEm ?? this.criadoEm,
@@ -47,8 +106,10 @@ class FotoDocumentacaoItem {
   Map<String, dynamic> toMap() {
     return {
       'id': id,
+      'titulo': titulo,
       'url': url,
       'local_path': localPath,
+      'fotos': fotos.map((f) => f.toMap()).toList(),
       'descricao': descricao,
       'categoria': categoria,
       'criado_em': criadoEm.toIso8601String(),
@@ -59,7 +120,9 @@ class FotoDocumentacaoItem {
   Map<String, dynamic> toDatabaseMap() {
     return {
       'id': id,
+      'titulo': titulo,
       'url': url,
+      'fotos': fotos.map((f) => f.toDatabaseMap()).toList(),
       'descricao': descricao,
       'categoria': categoria,
       'criado_em': criadoEm.toIso8601String(),
@@ -68,10 +131,30 @@ class FotoDocumentacaoItem {
 
   factory FotoDocumentacaoItem.fromMap(Map<String, dynamic> map) {
     final categoriaBruta = map['categoria']?.toString().trim() ?? '';
+
+    List<FotoMidiaItem> parsedFotos = [];
+    final rawFotos = map['fotos'];
+    if (rawFotos is List) {
+      for (final item in rawFotos) {
+        if (item is Map) {
+          parsedFotos.add(FotoMidiaItem.fromMap(Map<String, dynamic>.from(item)));
+        } else if (item != null && item.toString().trim().isNotEmpty) {
+          parsedFotos.add(FotoMidiaItem(url: item.toString().trim()));
+        }
+      }
+    } else {
+      // Compatibilidade com registros antigos de 1 foto por card
+      final legacyUrl = map['url']?.toString() ?? '';
+      final legacyLocal = map['local_path']?.toString() ?? '';
+      if (legacyUrl.trim().isNotEmpty || legacyLocal.trim().isNotEmpty) {
+        parsedFotos = [FotoMidiaItem(url: legacyUrl, localPath: legacyLocal)];
+      }
+    }
+
     return FotoDocumentacaoItem(
       id: map['id']?.toString().isNotEmpty == true ? map['id'].toString() : null,
-      url: map['url']?.toString() ?? '',
-      localPath: map['local_path']?.toString() ?? '',
+      titulo: map['titulo']?.toString() ?? '',
+      fotos: parsedFotos,
       descricao: map['descricao']?.toString() ?? '',
       categoria: categoriaBruta.isNotEmpty ? categoriaBruta : 'Serviço Realizado',
       criadoEm: map['criado_em'] != null
@@ -107,8 +190,16 @@ class AtsDocumentacao {
         createdAt = createdAt ?? DateTime.now(),
         updatedAt = updatedAt ?? DateTime.now();
 
-  int get totalFotos => itensFotos.isNotEmpty ? itensFotos.length : fotosUrls.length;
-  bool get possuiConteudo => anotacoesCampo.trim().isNotEmpty || totalFotos > 0;
+  int get totalFotos => itensFotos.isNotEmpty
+      ? itensFotos.fold<int>(0, (sum, item) => sum + item.fotos.length)
+      : fotosUrls.length;
+
+  int get totalAssuntos => itensFotos.length;
+
+  bool get possuiConteudo =>
+      anotacoesCampo.trim().isNotEmpty ||
+      totalFotos > 0 ||
+      itensFotos.any((e) => e.descricao.trim().isNotEmpty || e.titulo.trim().isNotEmpty);
 
   AtsDocumentacao copyWith({
     String? id,
@@ -151,7 +242,7 @@ class AtsDocumentacao {
   /// Mapa estrito para envio ao banco PostgreSQL Supabase
   Map<String, dynamic> toDatabaseMap() {
     final urlsParaBanco = itensFotos.isNotEmpty
-        ? itensFotos.map((e) => e.url.trim()).where((u) => u.isNotEmpty).toList()
+        ? itensFotos.expand((e) => e.urlsValidas).toList()
         : fotosUrls;
     return {
       'id': id,
@@ -185,13 +276,17 @@ class AtsDocumentacao {
           .toList();
     } else if (parsedUrls.isNotEmpty || parsedLocalPaths.isNotEmpty) {
       final count = parsedUrls.isNotEmpty ? parsedUrls.length : parsedLocalPaths.length;
+      final legacyFotos = <FotoMidiaItem>[];
       for (int i = 0; i < count; i++) {
-        parsedItens.add(
-          FotoDocumentacaoItem(
+        legacyFotos.add(
+          FotoMidiaItem(
             url: i < parsedUrls.length ? parsedUrls[i] : '',
             localPath: i < parsedLocalPaths.length ? parsedLocalPaths[i] : '',
           ),
         );
+      }
+      if (legacyFotos.isNotEmpty) {
+        parsedItens.add(FotoDocumentacaoItem(fotos: legacyFotos));
       }
     }
 

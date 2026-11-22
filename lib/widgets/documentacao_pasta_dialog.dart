@@ -71,59 +71,104 @@ class _DocumentacaoPastaDialogState extends State<DocumentacaoPastaDialog> {
     } catch (_) {}
   }
 
-  void _abrirFotoAmpliada(FotoDocumentacaoItem item, int numero) {
-    final hasUrl = item.url.trim().isNotEmpty && item.url.startsWith('http');
-    if (!hasUrl) return;
+  void _abrirGaleriaAmpliada(FotoDocumentacaoItem assunto, int numeroAssunto, int initialFotoIndex) {
+    if (assunto.fotos.isEmpty) return;
+
+    int currentIndex = initialFotoIndex.clamp(0, assunto.fotos.length - 1);
+    final tituloAssunto = assunto.titulo.trim().isNotEmpty
+        ? assunto.titulo.trim()
+        : assunto.categoria;
 
     showDialog(
       context: context,
-      builder: (ctx) => Dialog(
-        backgroundColor: Colors.black87,
-        insetPadding: const EdgeInsets.all(16),
-        child: Stack(
-          children: [
-            InteractiveViewer(
-              minScale: 0.5,
-              maxScale: 4.0,
-              child: Center(
-                child: Image.network(item.url, fit: BoxFit.contain),
-              ),
-            ),
-            Positioned(
-              top: 8,
-              left: 16,
-              right: 96,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.black54,
-                  borderRadius: BorderRadius.circular(8),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          final fotoAtual = assunto.fotos[currentIndex];
+          final hasUrl = fotoAtual.hasUrl;
+
+          return Dialog(
+            backgroundColor: Colors.black87,
+            insetPadding: const EdgeInsets.all(16),
+            child: Stack(
+              children: [
+                InteractiveViewer(
+                  key: ValueKey('pasta_${assunto.id}_$currentIndex'),
+                  minScale: 0.5,
+                  maxScale: 4.0,
+                  child: Center(
+                    child: hasUrl
+                        ? Image.network(fotoAtual.url, fit: BoxFit.contain)
+                        : const Icon(Icons.broken_image, color: Colors.white, size: 48),
+                  ),
                 ),
-                child: Text(
-                  'Foto #$numero • ${item.categoria}',
-                  style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                Positioned(
+                  top: 8,
+                  left: 16,
+                  right: 96,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.black54,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      'Assunto #$numeroAssunto ($tituloAssunto) • Foto ${currentIndex + 1} de ${assunto.fotos.length}',
+                      style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                    ),
+                  ),
                 ),
-              ),
+                if (hasUrl)
+                  Positioned(
+                    top: 8,
+                    right: 52,
+                    child: IconButton(
+                      icon: const Icon(Icons.open_in_new, color: Colors.white, size: 22),
+                      tooltip: 'Abrir imagem original em nova aba',
+                      onPressed: () => _abrirImagemNovaAba(fotoAtual.url),
+                    ),
+                  ),
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white, size: 28),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ),
+                if (assunto.fotos.length > 1) ...[
+                  if (currentIndex > 0)
+                    Positioned(
+                      left: 10,
+                      top: 0,
+                      bottom: 0,
+                      child: Center(
+                        child: IconButton.filled(
+                          style: IconButton.styleFrom(backgroundColor: Colors.black54),
+                          icon: const Icon(Icons.chevron_left_rounded, color: Colors.white, size: 32),
+                          tooltip: 'Foto anterior',
+                          onPressed: () => setDialogState(() => currentIndex--),
+                        ),
+                      ),
+                    ),
+                  if (currentIndex < assunto.fotos.length - 1)
+                    Positioned(
+                      right: 10,
+                      top: 0,
+                      bottom: 0,
+                      child: Center(
+                        child: IconButton.filled(
+                          style: IconButton.styleFrom(backgroundColor: Colors.black54),
+                          icon: const Icon(Icons.chevron_right_rounded, color: Colors.white, size: 32),
+                          tooltip: 'Próxima foto',
+                          onPressed: () => setDialogState(() => currentIndex++),
+                        ),
+                      ),
+                    ),
+                ],
+              ],
             ),
-            Positioned(
-              top: 8,
-              right: 52,
-              child: IconButton(
-                icon: const Icon(Icons.open_in_new, color: Colors.white, size: 22),
-                tooltip: 'Abrir imagem original em nova aba',
-                onPressed: () => _abrirImagemNovaAba(item.url),
-              ),
-            ),
-            Positioned(
-              top: 8,
-              right: 8,
-              child: IconButton(
-                icon: const Icon(Icons.close, color: Colors.white, size: 28),
-                onPressed: () => Navigator.pop(ctx),
-              ),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -377,7 +422,7 @@ class _DocumentacaoPastaDialogState extends State<DocumentacaoPastaDialog> {
                       ),
                       const SizedBox(height: 16),
 
-                      // 3. Registro Fotográfico e Descritivo
+                      // 3. Registros por Assunto (Sequência de fotos + anotação)
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
@@ -394,7 +439,7 @@ class _DocumentacaoPastaDialogState extends State<DocumentacaoPastaDialog> {
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
-                                    'Registro Fotográfico e Descritivo (${itensFotos.length} ${itensFotos.length == 1 ? "foto" : "fotos"})',
+                                    'Registros por Assunto (${itensFotos.length} ${itensFotos.length == 1 ? "assunto" : "assuntos"} • ${doc?.totalFotos ?? 0} ${(doc?.totalFotos ?? 0) == 1 ? "foto" : "fotos"})',
                                     style: const TextStyle(
                                       fontSize: 15,
                                       fontWeight: FontWeight.bold,
@@ -419,7 +464,7 @@ class _DocumentacaoPastaDialogState extends State<DocumentacaoPastaDialog> {
                                     Icon(Icons.photo_camera_back_outlined, size: 36, color: Color(0xFF94A3B8)),
                                     SizedBox(height: 8),
                                     Text(
-                                      'Nenhuma foto registrada pelo técnico até o momento.',
+                                      'Nenhum assunto ou foto registrada pelo técnico até o momento.',
                                       style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
                                     ),
                                   ],
@@ -430,7 +475,124 @@ class _DocumentacaoPastaDialogState extends State<DocumentacaoPastaDialog> {
                                 children: itensFotos.asMap().entries.map((entry) {
                                   final idx = entry.key;
                                   final item = entry.value;
-                                  final hasUrl = item.url.trim().isNotEmpty && item.url.startsWith('http');
+
+                                  Widget buildFotoBox(FotoMidiaItem foto, int fotoIdx, double height) {
+                                    final hasUrl = foto.hasUrl;
+                                    return GestureDetector(
+                                      onTap: hasUrl ? () => _abrirGaleriaAmpliada(item, idx + 1, fotoIdx) : null,
+                                      child: Container(
+                                        height: height,
+                                        width: double.infinity,
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF0F172A).withValues(alpha: 0.04),
+                                          borderRadius: BorderRadius.circular(8),
+                                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                                        ),
+                                        child: Stack(
+                                          fit: StackFit.expand,
+                                          children: [
+                                            if (hasUrl)
+                                              ClipRRect(
+                                                borderRadius: BorderRadius.circular(8),
+                                                child: Image.network(
+                                                  foto.url,
+                                                  fit: BoxFit.contain,
+                                                  loadingBuilder: (context, child, loadingProgress) {
+                                                    if (loadingProgress == null) return child;
+                                                    return const Center(
+                                                      child: CircularProgressIndicator(color: Color(0xFF0A369D)),
+                                                    );
+                                                  },
+                                                  errorBuilder: (context, error, stackTrace) => const Center(
+                                                    child: Text(
+                                                      'Imagem indisponível',
+                                                      style: TextStyle(color: Color(0xFF64748B), fontSize: 12),
+                                                    ),
+                                                  ),
+                                                ),
+                                              )
+                                            else
+                                              const Center(
+                                                child: Padding(
+                                                  padding: EdgeInsets.all(12),
+                                                  child: Column(
+                                                    mainAxisAlignment: MainAxisAlignment.center,
+                                                    children: [
+                                                      Icon(Icons.cloud_off, color: Color(0xFF94A3B8), size: 30),
+                                                      SizedBox(height: 6),
+                                                      Text(
+                                                        'Foto aguardando sincronização.',
+                                                        textAlign: TextAlign.center,
+                                                        style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+                                            Positioned(
+                                              left: 8,
+                                              top: 8,
+                                              child: Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.black54,
+                                                  borderRadius: BorderRadius.circular(5),
+                                                ),
+                                                child: Text(
+                                                  '${fotoIdx + 1}/${item.fotos.length}',
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                            if (hasUrl)
+                                              Positioned(
+                                                right: 6,
+                                                top: 6,
+                                                child: Material(
+                                                  color: Colors.black54,
+                                                  shape: const CircleBorder(),
+                                                  child: InkWell(
+                                                    customBorder: const CircleBorder(),
+                                                    onTap: () => _abrirImagemNovaAba(foto.url),
+                                                    child: const Tooltip(
+                                                      message: 'Abrir imagem original em nova aba',
+                                                      child: Padding(
+                                                        padding: EdgeInsets.all(6),
+                                                        child: Icon(Icons.open_in_new, size: 15, color: Colors.white),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            if (hasUrl)
+                                              Positioned(
+                                                right: 8,
+                                                bottom: 8,
+                                                child: Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.black54,
+                                                    borderRadius: BorderRadius.circular(6),
+                                                  ),
+                                                  child: const Row(
+                                                    mainAxisSize: MainAxisSize.min,
+                                                    children: [
+                                                      Icon(Icons.zoom_in, color: Colors.white, size: 14),
+                                                      SizedBox(width: 4),
+                                                      Text('Ampliar', style: TextStyle(color: Colors.white, fontSize: 11)),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  }
 
                                   return Container(
                                     margin: const EdgeInsets.only(bottom: 16),
@@ -449,8 +611,10 @@ class _DocumentacaoPastaDialogState extends State<DocumentacaoPastaDialog> {
                                           alignment: WrapAlignment.spaceBetween,
                                           crossAxisAlignment: WrapCrossAlignment.center,
                                           children: [
-                                            Row(
-                                              mainAxisSize: MainAxisSize.min,
+                                            Wrap(
+                                              spacing: 6,
+                                              runSpacing: 6,
+                                              crossAxisAlignment: WrapCrossAlignment.center,
                                               children: [
                                                 Container(
                                                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -459,7 +623,7 @@ class _DocumentacaoPastaDialogState extends State<DocumentacaoPastaDialog> {
                                                     borderRadius: BorderRadius.circular(6),
                                                   ),
                                                   child: Text(
-                                                    'Foto #${idx + 1}',
+                                                    'Assunto #${idx + 1}',
                                                     style: const TextStyle(
                                                       color: Colors.white,
                                                       fontSize: 12,
@@ -467,7 +631,6 @@ class _DocumentacaoPastaDialogState extends State<DocumentacaoPastaDialog> {
                                                     ),
                                                   ),
                                                 ),
-                                                const SizedBox(width: 8),
                                                 Container(
                                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                                   decoration: BoxDecoration(
@@ -484,98 +647,80 @@ class _DocumentacaoPastaDialogState extends State<DocumentacaoPastaDialog> {
                                                     ),
                                                   ),
                                                 ),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                  decoration: BoxDecoration(
+                                                    color: const Color(0xFFE2E8F0),
+                                                    borderRadius: BorderRadius.circular(6),
+                                                  ),
+                                                  child: Text(
+                                                    '${item.fotos.length} ${item.fotos.length == 1 ? "foto" : "fotos"}',
+                                                    style: const TextStyle(
+                                                      color: Color(0xFF334155),
+                                                      fontSize: 11,
+                                                      fontWeight: FontWeight.w600,
+                                                    ),
+                                                  ),
+                                                ),
                                               ],
                                             ),
-                                            Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Text(
-                                                  _dateFormat.format(item.criadoEm),
-                                                  style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
-                                                ),
-                                                if (hasUrl) ...[
-                                                  const SizedBox(width: 4),
-                                                  IconButton(
-                                                    icon: const Icon(Icons.open_in_new, size: 18, color: Color(0xFF0A369D)),
-                                                    tooltip: 'Abrir imagem original em nova aba',
-                                                    visualDensity: VisualDensity.compact,
-                                                    onPressed: () => _abrirImagemNovaAba(item.url),
-                                                  ),
-                                                ],
-                                              ],
+                                            Text(
+                                              _dateFormat.format(item.criadoEm),
+                                              style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
                                             ),
                                           ],
                                         ),
+                                        if (item.titulo.trim().isNotEmpty) ...[
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            item.titulo.trim(),
+                                            style: const TextStyle(
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.bold,
+                                              color: Color(0xFF0F172A),
+                                            ),
+                                          ),
+                                        ],
                                         const SizedBox(height: 10),
-                                        GestureDetector(
-                                          onTap: hasUrl ? () => _abrirFotoAmpliada(item, idx + 1) : null,
-                                          child: Container(
-                                            height: 280,
-                                            width: double.infinity,
+                                        if (item.fotos.isEmpty)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 12),
                                             decoration: BoxDecoration(
-                                              color: const Color(0xFF0F172A).withValues(alpha: 0.04),
+                                              color: Colors.white,
                                               borderRadius: BorderRadius.circular(8),
                                               border: Border.all(color: const Color(0xFFE2E8F0)),
                                             ),
-                                            child: hasUrl
-                                                ? Stack(
-                                                    fit: StackFit.expand,
-                                                    children: [
-                                                      ClipRRect(
-                                                        borderRadius: BorderRadius.circular(8),
-                                                        child: Image.network(
-                                                          item.url,
-                                                          fit: BoxFit.contain,
-                                                          loadingBuilder: (context, child, loadingProgress) {
-                                                            if (loadingProgress == null) return child;
-                                                            return const Center(
-                                                              child: CircularProgressIndicator(color: Color(0xFF0A369D)),
-                                                            );
-                                                          },
-                                                          errorBuilder: (context, error, stackTrace) => const Center(
-                                                            child: Text(
-                                                              'Imagem indisponível',
-                                                              style: TextStyle(color: Color(0xFF64748B), fontSize: 12),
-                                                            ),
-                                                          ),
-                                                        ),
-                                                      ),
-                                                      Positioned(
-                                                        right: 8,
-                                                        bottom: 8,
-                                                        child: Container(
-                                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                                          decoration: BoxDecoration(
-                                                            color: Colors.black54,
-                                                            borderRadius: BorderRadius.circular(6),
-                                                          ),
-                                                          child: const Row(
-                                                            mainAxisSize: MainAxisSize.min,
-                                                            children: [
-                                                              Icon(Icons.zoom_in, color: Colors.white, size: 14),
-                                                              SizedBox(width: 4),
-                                                              Text('Ampliar', style: TextStyle(color: Colors.white, fontSize: 11)),
-                                                            ],
-                                                          ),
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  )
-                                                : const Center(
-                                                    child: Column(
-                                                      mainAxisAlignment: MainAxisAlignment.center,
-                                                      children: [
-                                                        Icon(Icons.cloud_off, color: Color(0xFF94A3B8), size: 32),
-                                                        SizedBox(height: 6),
-                                                        Text(
-                                                          'Foto aguardando sincronização do aparelho do técnico.',
-                                                          style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  ),
+                                            child: const Text(
+                                              'Sem fotos anexadas neste assunto.',
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+                                            ),
+                                          )
+                                        else if (item.fotos.length == 1)
+                                          buildFotoBox(item.fotos.first, 0, 260)
+                                        else ...[
+                                          Text(
+                                            'Sequência de fotos (${item.fotos.length}) — deslize para o lado ou clique para ampliar',
+                                            style: const TextStyle(
+                                              fontSize: 11.5,
+                                              fontWeight: FontWeight.w600,
+                                              color: Color(0xFF475569),
+                                            ),
                                           ),
-                                        ),
+                                          const SizedBox(height: 6),
+                                          SizedBox(
+                                            height: 230,
+                                            child: ListView.separated(
+                                              scrollDirection: Axis.horizontal,
+                                              itemCount: item.fotos.length,
+                                              separatorBuilder: (_, _) => const SizedBox(width: 10),
+                                              itemBuilder: (ctx, fotoIdx) => SizedBox(
+                                                width: 260,
+                                                child: buildFotoBox(item.fotos[fotoIdx], fotoIdx, 230),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                         const SizedBox(height: 10),
                                         Container(
                                           padding: const EdgeInsets.all(12),
@@ -588,7 +733,7 @@ class _DocumentacaoPastaDialogState extends State<DocumentacaoPastaDialog> {
                                             crossAxisAlignment: CrossAxisAlignment.start,
                                             children: [
                                               const Text(
-                                                'Descrição / Serviço Realizado nesta foto:',
+                                                'Anotação deste assunto:',
                                                 style: TextStyle(
                                                   fontSize: 11,
                                                   fontWeight: FontWeight.bold,
