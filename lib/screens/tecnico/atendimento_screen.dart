@@ -2,25 +2,41 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
+import '../../models/ats_documentacao.dart';
 import '../../models/chamado.dart';
 import '../../services/ats_documentacao_service.dart';
 import 'ats_form_screen.dart';
 import 'tecnico_dashboard.dart';
 
+class _FotoDocEntry {
+  FotoDocumentacaoItem item;
+  final TextEditingController descricaoController;
+  final Uint8List? previewBytes;
+
+  _FotoDocEntry({
+    required this.item,
+    required this.descricaoController,
+    this.previewBytes,
+  });
+}
+
 /// Tela estrutural de Atendimento do Técnico com navegação em 3 Abas:
-/// 1. Documentar (Bloco de notas de campo e fotos)
+/// 1. Documentar (Bloco de notas de campo estilo OneNote e fotos com descritivo)
 /// 2. Relatório (Formulário ATS completo)
 /// 3. Chat IA (Assistente de diagnóstico e manuais de serviço)
 class AtendimentoScreen extends StatefulWidget {
   final Ticket? ticket;
   final Chamado? chamado;
   final bool isRevisao;
+  final int initialTabIndex;
 
   const AtendimentoScreen({
     super.key,
     this.ticket,
     this.chamado,
     this.isRevisao = false,
+    this.initialTabIndex = 1,
   });
 
   @override
@@ -28,7 +44,7 @@ class AtendimentoScreen extends StatefulWidget {
 }
 
 class _AtendimentoScreenState extends State<AtendimentoScreen> {
-  int _currentIndex = 1; // Inicia na aba central 'Relatório' ou 'Documentar'
+  late int _currentIndex;
 
   late final String _chamadoId;
   late final String _numeroAts;
@@ -38,17 +54,19 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
 
   // Estado da Aba 1 (Documentar)
   final TextEditingController _notasController = TextEditingController();
-  final List<String> _fotosLocais = [];
-  final List<String> _fotosUrls = [];
+  final List<_FotoDocEntry> _fotosEntries = [];
   bool _carregandoDoc = true;
   bool _salvandoDoc = false;
+  bool _enviandoFoto = false;
   bool _pendingSyncDoc = false;
 
   final ImagePicker _picker = ImagePicker();
+  final DateFormat _docDateFormat = DateFormat('dd/MM/yyyy HH:mm');
 
   @override
   void initState() {
     super.initState();
+    _currentIndex = widget.initialTabIndex;
     _numeroAts = widget.chamado?.numeroAts ?? widget.ticket?.numeroAts ?? '000000';
     _chamadoId = widget.chamado?.id ?? widget.ticket?.chamadoId ?? widget.ticket?.id ?? '';
     _razaoSocial = widget.chamado?.razaoSocial ?? widget.ticket?.companyName ?? 'Cliente não informado';
@@ -61,6 +79,9 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
   @override
   void dispose() {
     _notasController.dispose();
+    for (final entry in _fotosEntries) {
+      entry.descricaoController.dispose();
+    }
     super.dispose();
   }
 
@@ -77,10 +98,18 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
       if (mounted) {
         setState(() {
           _notasController.text = doc.anotacoesCampo;
-          _fotosLocais.clear();
-          _fotosLocais.addAll(doc.localFotosPaths);
-          _fotosUrls.clear();
-          _fotosUrls.addAll(doc.fotosUrls);
+          for (final old in _fotosEntries) {
+            old.descricaoController.dispose();
+          }
+          _fotosEntries.clear();
+          for (final item in doc.itensFotos) {
+            _fotosEntries.add(
+              _FotoDocEntry(
+                item: item,
+                descricaoController: TextEditingController(text: item.descricao),
+              ),
+            );
+          }
           _pendingSyncDoc = doc.pendingSync;
           _carregandoDoc = false;
         });
@@ -99,15 +128,23 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
     setState(() => _salvandoDoc = true);
 
     try {
+      for (final entry in _fotosEntries) {
+        entry.item = entry.item.copyWith(
+          descricao: entry.descricaoController.text.trim(),
+        );
+      }
+
       final docAtualizado = await AtsDocumentacaoService.instance.salvarDocumentacao(
         chamadoId: _chamadoId,
         anotacoes: _notasController.text.trim(),
-        localFotosPaths: _fotosLocais,
-        fotosUrlsExistentes: _fotosUrls,
+        itensFotos: _fotosEntries.map((e) => e.item).toList(),
       );
 
       if (mounted) {
         setState(() {
+          for (int i = 0; i < _fotosEntries.length && i < docAtualizado.itensFotos.length; i++) {
+            _fotosEntries[i].item = docAtualizado.itensFotos[i];
+          }
           _pendingSyncDoc = docAtualizado.pendingSync;
           _salvandoDoc = false;
         });
@@ -130,7 +167,7 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
         if (!silencioso) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Erro ao salvar notas: $e'),
+              content: Text('Erro ao salvar documentação: $e'),
               backgroundColor: Colors.redAccent,
               behavior: SnackBarBehavior.floating,
             ),
@@ -148,22 +185,162 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
         maxWidth: 1920,
       );
 
-      if (picked != null) {
+      if (picked == null) return;
+
+      final fileName = picked.name.trim().isNotEmpty
+          ? picked.name.trim()
+          : 'foto_${DateTime.now().millisecondsSinceEpoch}.jpg';
+
+      if (fileName.toLowerCase().endsWith('.svg')) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Formato SVG não é permitido por segurança.'),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
+        return;
+      }
+
+      final bytes = await picked.readAsBytes();
+      if (mounted) {
+        setState(() => _enviandoFoto = true);
+      }
+
+      String? uploadedUrl;
+      try {
+        uploadedUrl = await AtsDocumentacaoService.instance.uploadFotoBytes(
+          chamadoId: _chamadoId,
+          bytes: bytes,
+          fileName: fileName,
+        );
+      } catch (upErr) {
+        debugPrint('[AtendimentoScreen] Aviso upload imediato da foto: $upErr');
+      }
+
+      final newItem = FotoDocumentacaoItem(
+        url: uploadedUrl ?? '',
+        localPath: kIsWeb ? '' : picked.path,
+        categoria: _fotosEntries.isEmpty ? 'Alarme / Falha' : 'Serviço Realizado',
+        criadoEm: DateTime.now(),
+      );
+
+      if (mounted) {
         setState(() {
-          _fotosLocais.add(picked.path);
+          _fotosEntries.add(
+            _FotoDocEntry(
+              item: newItem,
+              descricaoController: TextEditingController(),
+              previewBytes: bytes,
+            ),
+          );
+          _enviandoFoto = false;
         });
         await _salvarDocumentacao(silencioso: true);
       }
     } catch (e) {
       debugPrint('[AtendimentoScreen] Erro ao capturar foto: $e');
+      if (mounted) {
+        setState(() => _enviandoFoto = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao adicionar foto: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
     }
   }
 
-  void _removerFoto(int index) {
+  Future<void> _removerFoto(int index) async {
+    if (index < 0 || index >= _fotosEntries.length) return;
+
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remover Foto?'),
+        content: const Text('Deseja remover esta foto e a sua descrição da documentação do chamado?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFDC2626), foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remover'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar != true || !mounted) return;
+
+    final entry = _fotosEntries[index];
+    final removedUrl = entry.item.url;
+
     setState(() {
-      _fotosLocais.removeAt(index);
+      _fotosEntries.removeAt(index);
     });
-    _salvarDocumentacao(silencioso: true);
+    entry.descricaoController.dispose();
+
+    if (removedUrl.trim().isNotEmpty) {
+      await AtsDocumentacaoService.instance.removerFotoStorage(removedUrl);
+    }
+    await _salvarDocumentacao(silencioso: true);
+  }
+
+  void _abrirFotoAmpliada(_FotoDocEntry entry, int numero) {
+    final hasUrl = entry.item.url.trim().isNotEmpty && entry.item.url.startsWith('http');
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.black87,
+        insetPadding: const EdgeInsets.all(16),
+        child: Stack(
+          children: [
+            InteractiveViewer(
+              minScale: 0.5,
+              maxScale: 4.0,
+              child: Center(
+                child: entry.previewBytes != null
+                    ? Image.memory(entry.previewBytes!, fit: BoxFit.contain)
+                    : (hasUrl
+                        ? Image.network(entry.item.url, fit: BoxFit.contain)
+                        : (!kIsWeb && entry.item.localPath.isNotEmpty
+                            ? Image.file(File(entry.item.localPath), fit: BoxFit.contain)
+                            : const Icon(Icons.broken_image, color: Colors.white, size: 48))),
+              ),
+            ),
+            Positioned(
+              top: 8,
+              left: 16,
+              right: 52,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  'Foto #$numero • ${entry.item.categoria}',
+                  style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 8,
+              right: 8,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white, size: 28),
+                onPressed: () => Navigator.pop(ctx),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -189,7 +366,15 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context, true),
+          onPressed: () async {
+            final navigator = Navigator.of(context);
+            if (_currentIndex == 0) {
+              await _salvarDocumentacao(silencioso: true);
+            }
+            if (mounted) {
+              navigator.pop(false);
+            }
+          },
         ),
         actions: [
           if (_currentIndex == 0) // Na aba documentar
@@ -315,7 +500,11 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
           // Card de Anotações Técnicas
           Card(
             elevation: 1,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: const BorderSide(color: Color(0xFFFDE68A)),
+            ),
+            color: const Color(0xFFFFFEF5),
             child: Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
@@ -323,28 +512,28 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
                 children: [
                   const Row(
                     children: [
-                      Icon(Icons.edit_note, color: Color(0xFF0A369D)),
+                      Icon(Icons.edit_note_rounded, color: Color(0xFF0A369D), size: 22),
                       SizedBox(width: 8),
                       Text(
-                        'Notas de Campo (Estilo OneNote)',
+                        'Anotações Gerais e Ajustes (Estilo OneNote)',
                         style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                       ),
                     ],
                   ),
                   const SizedBox(height: 6),
                   const Text(
-                    'Anote dados rápidos de medição, diagnóstico, peças substituídas ou observações de campo.',
+                    'Anote códigos de alarme, parâmetros ajustados, peças trocadas e observações técnicas deste chamado.',
                     style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
                   ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _notasController,
-                    maxLines: 8,
+                    maxLines: 6,
                     decoration: InputDecoration(
-                      hintText: 'Digite aqui suas anotações técnicas do atendimento...\nEx: Pressão hidráulica em 120 bar; substituído retentor do fuso; verificado alinhamento do eixo X.',
+                      hintText: 'Digite aqui suas anotações gerais e ajustes efetuados...\nEx: Alarme AL-11 no drive X; reapertado conector CN3 e calibrado ganho em 120 bar.',
                       hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
                       filled: true,
-                      fillColor: const Color(0xFFF8FAFC),
+                      fillColor: Colors.white,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
                         borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
@@ -365,7 +554,7 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
           ),
           const SizedBox(height: 16),
 
-          // Card de Galeria de Fotos de Campo
+          // Card de Galeria de Fotos de Campo com Descritivo Individual abaixo de cada foto
           Card(
             elevation: 1,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -374,124 +563,299 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           const Icon(Icons.photo_library_outlined, color: Color(0xFF0A369D)),
                           const SizedBox(width: 8),
                           Text(
-                            'Registro Fotográfico (${_fotosLocais.length})',
+                            'Registro Fotográfico e Descritivo (${_fotosEntries.length})',
                             style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
                           ),
                         ],
                       ),
                       Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          IconButton(
-                            icon: const Icon(Icons.camera_alt_outlined, color: Color(0xFF0A369D)),
-                            tooltip: 'Tirar Foto',
-                            onPressed: () => _adicionarFoto(ImageSource.camera),
+                          ElevatedButton.icon(
+                            onPressed: _enviandoFoto ? null : () => _adicionarFoto(ImageSource.camera),
+                            icon: _enviandoFoto
+                                ? const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.camera_alt, size: 16),
+                            label: const Text('Tirar Foto', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF0A369D),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            ),
                           ),
-                          IconButton(
-                            icon: const Icon(Icons.add_photo_alternate_outlined, color: Color(0xFF0A369D)),
-                            tooltip: 'Selecionar da Galeria',
-                            onPressed: () => _adicionarFoto(ImageSource.gallery),
+                          const SizedBox(width: 8),
+                          OutlinedButton.icon(
+                            onPressed: _enviandoFoto ? null : () => _adicionarFoto(ImageSource.gallery),
+                            icon: const Icon(Icons.add_photo_alternate_outlined, size: 16),
+                            label: const Text('Galeria', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF0A369D),
+                              side: const BorderSide(color: Color(0xFF93C5FD)),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            ),
                           ),
                         ],
                       ),
                     ],
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 6),
                   const Text(
-                    'Fotos de defeitos, painel de comando, placas de identificação e peças trocadas.',
+                    'Tire foto do alarme, painel ou serviço realizado e escreva logo abaixo de cada foto o que foi feito ali.',
                     style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 14),
 
-                  if (_fotosLocais.isEmpty)
+                  if (_fotosEntries.isEmpty)
                     Container(
                       width: double.infinity,
-                      padding: const EdgeInsets.symmetric(vertical: 28),
+                      padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
                       decoration: BoxDecoration(
                         color: const Color(0xFFF8FAFC),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFFE2E8F0), style: BorderStyle.solid),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
                       ),
                       child: Column(
                         children: [
-                          Icon(Icons.add_a_photo_outlined, size: 36, color: Colors.grey.shade400),
+                          Icon(Icons.add_a_photo_outlined, size: 38, color: Colors.grey.shade400),
                           const SizedBox(height: 8),
                           Text(
-                            'Nenhuma foto registrada para este atendimento.',
+                            'Nenhuma foto adicionada ainda.\nCapture uma foto do alarme ou do serviço para documentar embaixo dela.',
+                            textAlign: TextAlign.center,
                             style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
-                          ),
-                          const SizedBox(height: 6),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              OutlinedButton.icon(
-                                onPressed: () => _adicionarFoto(ImageSource.camera),
-                                icon: const Icon(Icons.camera_alt, size: 16),
-                                label: const Text('Câmera'),
-                              ),
-                              const SizedBox(width: 10),
-                              OutlinedButton.icon(
-                                onPressed: () => _adicionarFoto(ImageSource.gallery),
-                                icon: const Icon(Icons.photo_library, size: 16),
-                                label: const Text('Galeria'),
-                              ),
-                            ],
                           ),
                         ],
                       ),
                     )
                   else
-                    GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3,
-                        crossAxisSpacing: 8,
-                        mainAxisSpacing: 8,
-                        childAspectRatio: 1,
-                      ),
-                      itemCount: _fotosLocais.length,
-                      itemBuilder: (context, index) {
-                        final path = _fotosLocais[index];
-                        return Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: kIsWeb
-                                  ? Image.network(path, fit: BoxFit.cover)
-                                  : Image.file(File(path), fit: BoxFit.cover),
-                            ),
-                            Positioned(
-                              top: 4,
-                              right: 4,
-                              child: GestureDetector(
-                                onTap: () => _removerFoto(index),
-                                child: Container(
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: const BoxDecoration(
-                                    color: Colors.black54,
-                                    shape: BoxShape.circle,
+                    Column(
+                      children: _fotosEntries.asMap().entries.map((mapEntry) {
+                        final index = mapEntry.key;
+                        final entry = mapEntry.value;
+                        final hasUrl = entry.item.url.trim().isNotEmpty && entry.item.url.startsWith('http');
+
+                        Widget imagePreview;
+                        if (entry.previewBytes != null) {
+                          imagePreview = Image.memory(entry.previewBytes!, fit: BoxFit.contain);
+                        } else if (hasUrl) {
+                          imagePreview = Image.network(
+                            entry.item.url,
+                            fit: BoxFit.contain,
+                            loadingBuilder: (context, child, loadingProgress) {
+                              if (loadingProgress == null) return child;
+                              return const Center(child: CircularProgressIndicator(color: Color(0xFF0A369D)));
+                            },
+                            errorBuilder: (context, error, stackTrace) {
+                              if (!kIsWeb && entry.item.localPath.isNotEmpty) {
+                                return Image.file(File(entry.item.localPath), fit: BoxFit.contain);
+                              }
+                              return const Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(Icons.broken_image_outlined, size: 36, color: Color(0xFF94A3B8)),
+                                    SizedBox(height: 4),
+                                    Text('Não foi possível carregar a foto', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                                  ],
+                                ),
+                              );
+                            },
+                          );
+                        } else if (!kIsWeb && entry.item.localPath.isNotEmpty) {
+                          imagePreview = Image.file(File(entry.item.localPath), fit: BoxFit.contain);
+                        } else {
+                          imagePreview = const Center(
+                            child: Icon(Icons.image_not_supported_outlined, size: 36, color: Color(0xFF94A3B8)),
+                          );
+                        }
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 16),
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFFCBD5E1)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              // Cabeçalho do card da foto: número + categoria + data/hora + excluir
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF0A369D),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      'Foto #${index + 1}',
+                                      style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                                    ),
                                   ),
-                                  child: const Icon(Icons.close, color: Colors.white, size: 14),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: DropdownButtonHideUnderline(
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(color: const Color(0xFFCBD5E1)),
+                                        ),
+                                        child: DropdownButton<String>(
+                                          isDense: true,
+                                          isExpanded: true,
+                                          value: FotoDocumentacaoItem.categoriasPadrao.contains(entry.item.categoria)
+                                              ? entry.item.categoria
+                                              : FotoDocumentacaoItem.categoriasPadrao.first,
+                                          style: const TextStyle(fontSize: 12, color: Color(0xFF1E293B), fontWeight: FontWeight.w600),
+                                          items: FotoDocumentacaoItem.categoriasPadrao
+                                              .map((cat) => DropdownMenuItem(value: cat, child: Text(cat, overflow: TextOverflow.ellipsis)))
+                                              .toList(),
+                                          onChanged: (val) {
+                                            if (val != null) {
+                                              setState(() {
+                                                entry.item = entry.item.copyWith(categoria: val);
+                                              });
+                                            }
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    _docDateFormat.format(entry.item.criadoEm),
+                                    style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFDC2626), size: 20),
+                                    tooltip: 'Remover foto',
+                                    visualDensity: VisualDensity.compact,
+                                    onPressed: () => _removerFoto(index),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+
+                              // Visualização da foto (clique para ampliar)
+                              GestureDetector(
+                                onTap: () => _abrirFotoAmpliada(entry, index + 1),
+                                child: Stack(
+                                  children: [
+                                    Container(
+                                      height: 240,
+                                      width: double.infinity,
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF0F172A).withValues(alpha: 0.04),
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                                      ),
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: imagePreview,
+                                      ),
+                                    ),
+                                    Positioned(
+                                      right: 8,
+                                      bottom: 8,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black54,
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: const Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.zoom_in, color: Colors.white, size: 14),
+                                            SizedBox(width: 4),
+                                            Text('Ampliar', style: TextStyle(color: Colors.white, fontSize: 11)),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                            ),
-                          ],
+                              const SizedBox(height: 10),
+
+                              // Campo OneNote embaixo da foto
+                              TextField(
+                                controller: entry.descricaoController,
+                                minLines: 2,
+                                maxLines: 4,
+                                decoration: InputDecoration(
+                                  labelText: 'O que foi observado / realizado nesta foto (estilo OneNote)',
+                                  hintText: 'Ex: Alarme no servo acionador corrigido após troca do cabo encoder e teste de eixo.',
+                                  hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 12),
+                                  filled: true,
+                                  fillColor: Colors.white,
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: const BorderSide(color: Color(0xFF0A369D), width: 1.5),
+                                  ),
+                                  contentPadding: const EdgeInsets.all(12),
+                                ),
+                              ),
+                            ],
+                          ),
                         );
-                      },
+                      }).toList(),
                     ),
                 ],
               ),
             ),
           ),
+          const SizedBox(height: 16),
+
+          // Botão principal para salvar toda a documentação na nuvem
+          ElevatedButton.icon(
+            onPressed: _salvandoDoc ? null : () => _salvarDocumentacao(silencioso: false),
+            icon: _salvandoDoc
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                  )
+                : const Icon(Icons.cloud_upload_rounded, size: 20),
+            label: Text(
+              _salvandoDoc ? 'Salvando Documentação...' : 'Salvar Documentação na Nuvem',
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0A369D),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 15),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+          const SizedBox(height: 20),
         ],
       ),
     );

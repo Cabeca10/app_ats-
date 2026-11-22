@@ -5,15 +5,18 @@ import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../models/ats_documentacao.dart';
 import '../../models/chamado.dart';
 import '../../models/dia_trabalho.dart';
 import '../../models/log_horas_custos.dart';
 import '../../models/tecnico.dart';
+import '../../services/ats_documentacao_service.dart';
 import '../../services/ats_pdf_service.dart';
 import '../../services/chamados_service.dart';
 import '../../services/orcamento_pdf_service.dart';
 import '../../services/tecnicos_service.dart';
 import '../../utils/url_helper.dart';
+import '../../widgets/documentacao_pasta_dialog.dart';
 import 'chamados_list_screen.dart';
 
 const Color _emerald = Color(0xFF10B981);
@@ -35,6 +38,10 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
   String? _abrindoPdfChamadoId;
   String? _abrindoRelatorioChamadoId;
   String? _excluindoChamadoId;
+  Map<String, AtsDocumentacao> _documentacoesPorChamado = {};
+  bool _carregandoDocumentacoes = false;
+  String _buscaRegistro = '';
+  String _filtroStatusRegistro = 'todos';
   final _dateFormat = DateFormat('dd/MM/yyyy HH:mm');
 
   List<String> get _tecnicosDisponiveis => TecnicosService.instance.nomesTecnicos;
@@ -43,6 +50,26 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
   void initState() {
     super.initState();
     ChamadosService.instance.inicializarESincronizar();
+    _carregarDocumentacoesGerente();
+  }
+
+  Future<void> _carregarDocumentacoesGerente() async {
+    if (mounted) {
+      setState(() => _carregandoDocumentacoes = true);
+    }
+    try {
+      final docs = await AtsDocumentacaoService.instance.listarTodasDocumentacoes();
+      if (mounted) {
+        setState(() {
+          _documentacoesPorChamado = docs;
+          _carregandoDocumentacoes = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _carregandoDocumentacoes = false);
+      }
+    }
   }
 
   @override
@@ -162,6 +189,11 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                   index: 1,
                 ),
                 _buildSidebarItem(
+                  icon: Icons.folder_copy_outlined,
+                  label: 'Registro de Chamados',
+                  index: 3,
+                ),
+                _buildSidebarItem(
                   icon: Icons.people_outline,
                   label: 'Equipe Técnica',
                   index: 2,
@@ -239,7 +271,10 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                           ],
                           // Botão para atualizar manualmente a listagem
                           OutlinedButton.icon(
-                            onPressed: () => ChamadosService.instance.recarregarChamados(),
+                            onPressed: () {
+                              ChamadosService.instance.recarregarChamados();
+                              _carregarDocumentacoesGerente();
+                            },
                             icon: const Icon(Icons.refresh, size: 18),
                             label: const Text('Atualizar'),
                             style: OutlinedButton.styleFrom(
@@ -322,7 +357,12 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
   Widget _buildSidebarItem({required IconData icon, required String label, required int index}) {
     final isSelected = _selectedMenuIndex == index;
     return InkWell(
-      onTap: () => setState(() => _selectedMenuIndex = index),
+      onTap: () {
+        setState(() => _selectedMenuIndex = index);
+        if (index == 3) {
+          _carregarDocumentacoesGerente();
+        }
+      },
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -334,12 +374,15 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
           children: [
             Icon(icon, color: isSelected ? Colors.white : const Color(0xFF94A3B8), size: 20),
             const SizedBox(width: 12),
-            Text(
-              label,
-              style: TextStyle(
-                color: isSelected ? Colors.white : const Color(0xFFCBD5E1),
-                fontSize: 13,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: isSelected ? Colors.white : const Color(0xFFCBD5E1),
+                  fontSize: 13,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                ),
+                overflow: TextOverflow.ellipsis,
               ),
             ),
           ],
@@ -356,6 +399,8 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
         return 'Tabela Reativa de Chamados';
       case 2:
         return 'Equipe de Técnicos em Campo';
+      case 3:
+        return 'Registro de Chamados';
       default:
         return 'Painel do Gestor';
     }
@@ -371,6 +416,8 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
             : _buildTabelaChamadosReativa();
       case 2:
         return _buildEquipeTecnicaPage();
+      case 3:
+        return _buildRegistroChamadosPage();
       default:
         return _mostrarModoCards
             ? ChamadosListScreen(onAlternarParaTabela: () => setState(() => _mostrarModoCards = false))
@@ -791,8 +838,14 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
     );
   }
 
-  Widget _buildFilterChip(String label, String valor, {bool isAlert = false}) {
-    final isSelected = _filtroStatus == valor;
+  Widget _buildFilterChip(
+    String label,
+    String valor, {
+    bool isAlert = false,
+    String? selectedStatus,
+    ValueChanged<String>? onStatusSelected,
+  }) {
+    final isSelected = (selectedStatus ?? _filtroStatus) == valor;
     return ChoiceChip(
       label: Text(
         label,
@@ -804,7 +857,12 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
       ),
       selected: isSelected,
       onSelected: (val) {
-        if (val) setState(() => _filtroStatus = valor);
+        if (!val) return;
+        if (onStatusSelected != null) {
+          onStatusSelected(valor);
+        } else {
+          setState(() => _filtroStatus = valor);
+        }
       },
       selectedColor: const Color(0xFF0A369D),
       backgroundColor: isAlert ? const Color(0xFFFEF2F2) : const Color(0xFFF1F5F9),
@@ -816,6 +874,286 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
               : (isAlert ? const Color(0xFFEF4444) : const Color(0xFFE2E8F0)),
         ),
       ),
+    );
+  }
+
+  // ============================================================================
+  // PÁGINA 3: REGISTRO DE CHAMADOS (PASTA DE FOTOS, DESCRITIVO E RELATÓRIO FINAL)
+  // ============================================================================
+  Widget _buildRegistroChamadosPage() {
+    return ValueListenableBuilder<List<Chamado>>(
+      valueListenable: ChamadosService.instance.chamadosNotifier,
+      builder: (context, todosChamados, _) {
+        final chamados = todosChamados.where((c) {
+          final query = _buscaRegistro.toLowerCase();
+          final matchesBusca = query.isEmpty ||
+              c.numeroAts.toLowerCase().contains(query) ||
+              c.razaoSocial.toLowerCase().contains(query) ||
+              (c.modeloMaquina ?? '').toLowerCase().contains(query) ||
+              (c.tecnicoNome ?? '').toLowerCase().contains(query) ||
+              (c.tecnico2Nome ?? '').toLowerCase().contains(query);
+
+          if (!matchesBusca) return false;
+
+          switch (_filtroStatusRegistro) {
+            case 'atribuido':
+              return c.status == ChamadoStatus.atribuido;
+            case 'em_atendimento':
+              return c.status == ChamadoStatus.emAtendimento;
+            case 'finalizado':
+              return c.status == ChamadoStatus.finalizado;
+            case 'todos':
+            default:
+              return true;
+          }
+        }).toList();
+
+        return Container(
+          margin: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4)),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Expanded(
+                      flex: 2,
+                      child: TextField(
+                        onChanged: (val) => setState(() => _buscaRegistro = val.trim()),
+                        decoration: InputDecoration(
+                          hintText: 'Buscar por ATS, cliente, máquina ou técnico...',
+                          hintStyle: const TextStyle(fontSize: 13, color: Color(0xFF94A3B8)),
+                          prefixIcon: const Icon(Icons.search, size: 20, color: Color(0xFF64748B)),
+                          filled: true,
+                          fillColor: const Color(0xFFF8FAFC),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          _buildFilterChip(
+                            'Todos (${todosChamados.length})',
+                            'todos',
+                            selectedStatus: _filtroStatusRegistro,
+                            onStatusSelected: (v) => setState(() => _filtroStatusRegistro = v),
+                          ),
+                          const SizedBox(width: 8),
+                          _buildFilterChip(
+                            'Atribuídos (${todosChamados.where((c) => c.status == ChamadoStatus.atribuido).length})',
+                            'atribuido',
+                            selectedStatus: _filtroStatusRegistro,
+                            onStatusSelected: (v) => setState(() => _filtroStatusRegistro = v),
+                          ),
+                          const SizedBox(width: 8),
+                          _buildFilterChip(
+                            'Em Atendimento (${todosChamados.where((c) => c.status == ChamadoStatus.emAtendimento).length})',
+                            'em_atendimento',
+                            selectedStatus: _filtroStatusRegistro,
+                            onStatusSelected: (v) => setState(() => _filtroStatusRegistro = v),
+                          ),
+                          const SizedBox(width: 8),
+                          _buildFilterChip(
+                            'Finalizados (${todosChamados.where((c) => c.status == ChamadoStatus.finalizado).length})',
+                            'finalizado',
+                            selectedStatus: _filtroStatusRegistro,
+                            onStatusSelected: (v) => setState(() => _filtroStatusRegistro = v),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    OutlinedButton.icon(
+                      onPressed: _carregandoDocumentacoes ? null : _carregarDocumentacoesGerente,
+                      icon: _carregandoDocumentacoes
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0A369D)),
+                            )
+                          : const Icon(Icons.sync, size: 16),
+                      label: const Text('Atualizar Pastas'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF0A369D),
+                        side: const BorderSide(color: Color(0xFF93C5FD)),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1, color: Color(0xFFE2E8F0)),
+              Expanded(
+                child: chamados.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.folder_off_outlined, size: 48, color: Colors.grey.shade400),
+                            const SizedBox(height: 12),
+                            const Text(
+                              'Nenhum registro de chamado encontrado para os filtros aplicados.',
+                              style: TextStyle(color: Color(0xFF64748B), fontSize: 14),
+                            ),
+                          ],
+                        ),
+                      )
+                    : SingleChildScrollView(
+                        scrollDirection: Axis.vertical,
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: DataTable(
+                            headingRowColor: MaterialStateProperty.all(const Color(0xFFF8FAFC)),
+                            horizontalMargin: 20,
+                            columnSpacing: 28,
+                            columns: const [
+                              DataColumn(label: Text('ATS Nº', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                              DataColumn(label: Text('Cliente / Razão Social', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                              DataColumn(label: Text('Máquina / Equipamento', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                              DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                              DataColumn(label: Text('Fotos e Descritivo', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                              DataColumn(label: Text('Relatório Final', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                            ],
+                            rows: chamados.map((c) {
+                              final doc = _documentacoesPorChamado[c.id];
+                              final temPdfAprovado =
+                                  (c.orcamentoPdfUrl != null && c.orcamentoPdfUrl!.trim().isNotEmpty) ||
+                                  c.termosAceitos ||
+                                  c.status == ChamadoStatus.aprovadoPendente ||
+                                  c.status == ChamadoStatus.atribuido ||
+                                  c.status == ChamadoStatus.emAtendimento ||
+                                  c.status == ChamadoStatus.finalizado;
+                              final temRelatorioFinal = c.status == ChamadoStatus.finalizado ||
+                                  (c.relatorioPdfUrl != null && c.relatorioPdfUrl!.trim().isNotEmpty);
+                              final versaoRelatorio = c.relatorioVersao > 0 ? c.relatorioVersao : 1;
+
+                              final String pastaLabel;
+                              final bool temConteudoPasta;
+                              if (doc != null && doc.totalFotos > 0) {
+                                pastaLabel =
+                                    'Abrir Pasta (${doc.totalFotos} ${doc.totalFotos == 1 ? "foto" : "fotos"})';
+                                temConteudoPasta = true;
+                              } else if (doc != null && doc.anotacoesCampo.trim().isNotEmpty) {
+                                pastaLabel = 'Abrir Pasta (Notas)';
+                                temConteudoPasta = true;
+                              } else {
+                                pastaLabel = 'Abrir Pasta';
+                                temConteudoPasta = false;
+                              }
+
+                              return DataRow(
+                                cells: [
+                                  DataCell(
+                                    Text(
+                                      c.numeroAts.toUpperCase().startsWith('ATS-') ? c.numeroAts : 'ATS-${c.numeroAts}',
+                                      style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0A369D), fontSize: 13),
+                                    ),
+                                  ),
+                                  DataCell(
+                                    Text(c.razaoSocial, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                                  ),
+                                  DataCell(
+                                    Text(c.modeloMaquina ?? 'Em levantamento', style: const TextStyle(fontSize: 12)),
+                                  ),
+                                  DataCell(_buildStatusBadge(c.status)),
+                                  DataCell(
+                                    OutlinedButton.icon(
+                                      onPressed: () async {
+                                        await showDialog(
+                                          context: context,
+                                          builder: (_) => DocumentacaoPastaDialog(
+                                            chamado: c,
+                                            initialDoc: doc,
+                                            onAbrirRelatorioFinal:
+                                                temRelatorioFinal ? () => _abrirRelatorioFinalizado(c) : null,
+                                            onAbrirPdfAprovado:
+                                                temPdfAprovado ? () => _abrirPdfAprovado(c) : null,
+                                          ),
+                                        );
+                                        _carregarDocumentacoesGerente();
+                                      },
+                                      icon: const Icon(Icons.folder_open_rounded, size: 15),
+                                      label: Text(pastaLabel),
+                                      style: OutlinedButton.styleFrom(
+                                        backgroundColor:
+                                            temConteudoPasta ? const Color(0xFF4338CA) : Colors.white,
+                                        foregroundColor:
+                                            temConteudoPasta ? Colors.white : const Color(0xFF475569),
+                                        side: BorderSide(
+                                          color: temConteudoPasta
+                                              ? const Color(0xFF4338CA)
+                                              : const Color(0xFFCBD5E1),
+                                        ),
+                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                        textStyle: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: temConteudoPasta ? FontWeight.bold : FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  DataCell(
+                                    temRelatorioFinal
+                                        ? OutlinedButton.icon(
+                                            onPressed: _abrindoRelatorioChamadoId == c.id
+                                                ? null
+                                                : () => _abrirRelatorioFinalizado(c),
+                                            icon: _abrindoRelatorioChamadoId == c.id
+                                                ? const SizedBox(
+                                                    width: 14,
+                                                    height: 14,
+                                                    child: CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                      color: Color(0xFF15803D),
+                                                    ),
+                                                  )
+                                                : const Icon(Icons.picture_as_pdf_rounded, size: 15),
+                                            label: Text(
+                                              _abrindoRelatorioChamadoId == c.id
+                                                  ? 'Abrindo...'
+                                                  : 'Finalizado v$versaoRelatorio',
+                                            ),
+                                            style: OutlinedButton.styleFrom(
+                                              foregroundColor: const Color(0xFF15803D),
+                                              backgroundColor: const Color(0xFFF0FDF4),
+                                              side: const BorderSide(color: Color(0xFF86EFAC)),
+                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                              textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                            ),
+                                          )
+                                        : const Text(
+                                            'Aguardando',
+                                            style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                                          ),
+                                  ),
+                                ],
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 

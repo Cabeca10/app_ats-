@@ -743,7 +743,11 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
     );
   }
 
-  Future<void> _abrirAtendimento(Ticket ticket, {bool isRevisao = false}) async {
+  Future<void> _abrirAtendimento(
+    Ticket ticket, {
+    bool isRevisao = false,
+    int initialTabIndex = 1,
+  }) async {
     Chamado? chamado;
     if (ticket.chamadoId != null && ticket.chamadoId!.isNotEmpty) {
       chamado = ChamadosService.instance.obterChamadoPorId(ticket.chamadoId!);
@@ -759,6 +763,7 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
           ticket: ticket,
           chamado: chamado,
           isRevisao: isRevisao,
+          initialTabIndex: initialTabIndex,
         ),
       ),
     );
@@ -1071,6 +1076,23 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
                                       alignment: WrapAlignment.end,
                                       crossAxisAlignment: WrapCrossAlignment.center,
                                       children: [
+                                        OutlinedButton.icon(
+                                          onPressed: () => _abrirAtendimento(
+                                            ticket,
+                                            isRevisao: ticket.status == 'Concluído',
+                                            initialTabIndex: 0,
+                                          ),
+                                          icon: const Icon(Icons.menu_book_rounded, size: 15),
+                                          label: Text(ticket.status == 'Concluído' ? 'Ver Documentação' : 'Documentar'),
+                                          style: OutlinedButton.styleFrom(
+                                            foregroundColor: const Color(0xFF4338CA),
+                                            backgroundColor: const Color(0xFFEEF2FF),
+                                            side: const BorderSide(color: Color(0xFFC7D2FE)),
+                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                            textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                          ),
+                                        ),
                                         if (ticket.defeitoRelatado != null || ticket.orcamentoPdfUrl != null)
                                           OutlinedButton.icon(
                                             onPressed: () => _abrirPdfOrcamento(ticket),

@@ -9,6 +9,63 @@ class AtsDocumentacaoService {
   static final AtsDocumentacaoService instance = AtsDocumentacaoService._internal();
   AtsDocumentacaoService._internal();
 
+  /// Faz upload direto dos bytes da foto para o Supabase Storage (compatível com Web e Mobile)
+  Future<String?> uploadFotoBytes({
+    required String chamadoId,
+    required Uint8List bytes,
+    required String fileName,
+  }) async {
+    final trimmedName = fileName.trim();
+    if (trimmedName.toLowerCase().endsWith('.svg')) {
+      throw Exception('Upload de arquivos SVG é bloqueado por diretrizes de segurança.');
+    }
+
+    final bool isPng = (bytes.length >= 4 &&
+            bytes[0] == 0x89 &&
+            bytes[1] == 0x50 &&
+            bytes[2] == 0x4E &&
+            bytes[3] == 0x47) ||
+        trimmedName.toLowerCase().endsWith('.png');
+    final contentType = isPng ? 'image/png' : 'image/jpeg';
+
+    var safeName = trimmedName.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+    if (safeName.isEmpty) {
+      safeName = isPng ? 'foto.png' : 'foto.jpg';
+    }
+    final remotePath =
+        'documentacoes/${chamadoId}_${DateTime.now().millisecondsSinceEpoch}_$safeName';
+
+    final client = Supabase.instance.client;
+    await client.storage.from('orcamentos').uploadBinary(
+          remotePath,
+          bytes,
+          fileOptions: FileOptions(contentType: contentType, upsert: true),
+        );
+    return client.storage.from('orcamentos').getPublicUrl(remotePath);
+  }
+
+  /// Remove uma foto da documentação do Storage (best-effort)
+  Future<void> removerFotoStorage(String url) async {
+    final trimmed = url.trim();
+    if (trimmed.isEmpty || trimmed.contains('storage.local') || !trimmed.contains('/orcamentos/')) {
+      return;
+    }
+    try {
+      var path = trimmed.split('/orcamentos/').last.split('?').first;
+      try {
+        path = Uri.decodeFull(path);
+      } catch (_) {}
+      path = path.replaceFirst(RegExp(r'^/+'), '').trim();
+      if (path.isNotEmpty) {
+        await Supabase.instance.client.storage.from('orcamentos').remove([path]);
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[AtsDocumentacaoService] Aviso ao remover foto do Storage: $e');
+      }
+    }
+  }
+
   /// Carrega a documentação do chamado (traz do Hive local imediatamente e atualiza via Supabase caso online)
   Future<AtsDocumentacao> obterDocumentacao(String chamadoId) async {
     // 1. Tenta recuperar do cache local offline
@@ -24,93 +81,147 @@ class AtsDocumentacaoService {
           .maybeSingle();
 
       if (res != null) {
-        final remoteDoc = AtsDocumentacao.fromMap(res);
-        // Combina as fotos locais existentes com as URLs remotas
-        final combinedFotosUrls = {...localDoc.fotosUrls, ...remoteDoc.fotosUrls}.toList();
+        final remoteDoc = AtsDocumentacao.fromMap(Map<String, dynamic>.from(res));
+        final mergedItens = List<FotoDocumentacaoItem>.from(remoteDoc.itensFotos);
+
+        if (localDoc.pendingSync) {
+          for (final localItem in localDoc.itensFotos) {
+            if (localItem.url.trim().isEmpty &&
+                localItem.localPath.trim().isNotEmpty &&
+                !mergedItens.any((r) => r.id == localItem.id)) {
+              mergedItens.add(localItem);
+            }
+          }
+        }
+
+        final combinedUrls = mergedItens
+            .map((e) => e.url.trim())
+            .where((u) => u.isNotEmpty)
+            .toList();
+
         final atualizado = remoteDoc.copyWith(
-          fotosUrls: combinedFotosUrls,
-          localFotosPaths: localDoc.localFotosPaths,
+          itensFotos: mergedItens,
+          fotosUrls: combinedUrls.isNotEmpty ? combinedUrls : remoteDoc.fotosUrls,
+          localFotosPaths: mergedItens
+              .map((e) => e.localPath)
+              .where((p) => p.trim().isNotEmpty)
+              .toList(),
           pendingSync: false,
         );
         await OfflineStorageService.instance.salvarDocumentacaoLocal(atualizado);
         return atualizado;
       }
     } catch (e) {
-      debugPrint('[AtsDocumentacaoService] Falha ao consultar Supabase (usando cache local): $e');
+      if (kDebugMode) {
+        debugPrint('[AtsDocumentacaoService] Falha ao consultar Supabase (usando cache local): $e');
+      }
     }
 
     return localDoc;
   }
 
-  /// Salva as anotações e fotos localmente no Hive e sincroniza com o Supabase quando disponível
+  /// Lista todas as documentações registradas (para visão de Registro de Chamados do Gerente)
+  Future<Map<String, AtsDocumentacao>> listarTodasDocumentacoes() async {
+    try {
+      final res = await Supabase.instance.client
+          .from('ats_documentacoes')
+          .select('id, chamado_id, anotacoes_campo, fotos_urls, itens_fotos, created_at, updated_at');
+
+      final mapa = <String, AtsDocumentacao>{};
+      for (final row in (res as List)) {
+        final doc = AtsDocumentacao.fromMap(Map<String, dynamic>.from(row as Map));
+        if (doc.chamadoId.isNotEmpty) {
+          mapa[doc.chamadoId] = doc;
+        }
+      }
+      return mapa;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[AtsDocumentacaoService] Erro ao listar todas as documentações: $e');
+      }
+      return {};
+    }
+  }
+
+  /// Salva as anotações e itens fotográficos localmente no Hive e sincroniza com o Supabase quando disponível
   Future<AtsDocumentacao> salvarDocumentacao({
     required String chamadoId,
     required String anotacoes,
-    required List<String> localFotosPaths,
-    List<String>? fotosUrlsExistentes,
+    required List<FotoDocumentacaoItem> itensFotos,
   }) async {
-    final urlsFinais = List<String>.from(fotosUrlsExistentes ?? []);
+    final existenteLocal = OfflineStorageService.instance.obterDocumentacaoLocal(chamadoId);
+    final itensAtualizados = List<FotoDocumentacaoItem>.from(itensFotos);
     bool remotoSucesso = false;
+
+    List<String> extrairUrls() => itensAtualizados
+        .map((e) => e.url.trim())
+        .where((u) => u.isNotEmpty)
+        .toList();
+
+    List<String> extrairLocalPaths() => itensAtualizados
+        .map((e) => e.localPath.trim())
+        .where((p) => p.isNotEmpty)
+        .toList();
 
     // 1. Salva estado inicial localmente como pendente
     var doc = AtsDocumentacao(
+      id: existenteLocal?.id,
       chamadoId: chamadoId,
       anotacoesCampo: anotacoes,
-      fotosUrls: urlsFinais,
-      localFotosPaths: localFotosPaths,
+      fotosUrls: extrairUrls(),
+      localFotosPaths: extrairLocalPaths(),
+      itensFotos: itensAtualizados,
+      createdAt: existenteLocal?.createdAt,
       updatedAt: DateTime.now(),
       pendingSync: true,
     );
     await OfflineStorageService.instance.salvarDocumentacaoLocal(doc);
 
-    // 2. Tenta fazer upload das fotos e sincronizar com o banco remoto
+    // 2. Tenta enviar fotos pendentes (Mobile/Desktop) e sincronizar com o banco remoto
     try {
       final client = Supabase.instance.client;
 
-      // Upload de fotos locais novas para o Storage (apenas em mobile/desktop com File existente)
       if (!kIsWeb) {
-        for (final path in localFotosPaths) {
-          final file = File(path);
-          if (await file.exists()) {
-            final fileName = path.split(Platform.pathSeparator).last;
-            if (fileName.toLowerCase().endsWith('.svg')) {
-              if (kDebugMode) {
-                debugPrint('[AtsDocumentacaoService] Upload de SVG bloqueado por segurança: $fileName');
+        for (int i = 0; i < itensAtualizados.length; i++) {
+          final item = itensAtualizados[i];
+          if (item.url.trim().isEmpty && item.localPath.trim().isNotEmpty) {
+            final file = File(item.localPath);
+            if (await file.exists()) {
+              final fileName = item.localPath.split(Platform.pathSeparator).last;
+              if (fileName.toLowerCase().endsWith('.svg')) {
+                continue;
               }
-              continue;
-            }
-            final remotePath = 'documentacoes/${chamadoId}_$fileName';
-
-            try {
-              final bytes = await file.readAsBytes();
-              await client.storage.from('orcamentos').uploadBinary(
-                remotePath,
-                bytes,
-                fileOptions: const FileOptions(contentType: 'image/jpeg', upsert: true),
-              );
-              final publicUrl = client.storage.from('orcamentos').getPublicUrl(remotePath);
-              if (!urlsFinais.contains(publicUrl)) {
-                urlsFinais.add(publicUrl);
-              }
-            } catch (upErr) {
-              if (kDebugMode) {
-                debugPrint('[AtsDocumentacaoService] Erro ao subir foto $fileName: $upErr');
+              try {
+                final bytes = await file.readAsBytes();
+                final publicUrl = await uploadFotoBytes(
+                  chamadoId: chamadoId,
+                  bytes: bytes,
+                  fileName: fileName,
+                );
+                if (publicUrl != null && publicUrl.isNotEmpty) {
+                  itensAtualizados[i] = item.copyWith(url: publicUrl);
+                }
+              } catch (upErr) {
+                if (kDebugMode) {
+                  debugPrint('[AtsDocumentacaoService] Erro ao subir foto $fileName: $upErr');
+                }
               }
             }
           }
         }
       }
 
-      // Upsert na tabela ats_documentacoes
       doc = doc.copyWith(
-        fotosUrls: urlsFinais,
+        fotosUrls: extrairUrls(),
+        localFotosPaths: extrairLocalPaths(),
+        itensFotos: itensAtualizados,
         updatedAt: DateTime.now(),
       );
 
       await client.from('ats_documentacoes').upsert(
-        doc.toDatabaseMap(),
-        onConflict: 'chamado_id',
-      );
+            doc.toDatabaseMap(),
+            onConflict: 'chamado_id',
+          );
 
       remotoSucesso = true;
     } catch (e) {
