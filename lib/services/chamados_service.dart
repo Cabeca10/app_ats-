@@ -246,6 +246,8 @@ class ChamadosService {
         'status': ChamadoStatus.atribuido,
         'tecnico_nome': tecnicoNome,
         'tecnico_id': tecnicoId,
+        if (tecnicoId != null && tecnicoId.trim().isNotEmpty)
+          'id_tecnico': tecnicoId.trim(),
         'tecnico2_nome': tecnico2Nome,
         'tecnico2_id': tecnico2Id,
         'updated_at': DateTime.now().toIso8601String(),

@@ -14,6 +14,7 @@ import '../../services/chamados_service.dart';
 import '../../services/offline_storage_service.dart';
 import '../../services/orcamento_pdf_service.dart';
 import '../../services/pwa_helper.dart';
+import '../../widgets/planilha_reembolso_widget.dart';
 import 'package:uuid/uuid.dart';
 
 const Color _emerald = Color(0xFF10B981);
@@ -62,6 +63,7 @@ class TecnicoDashboard extends StatefulWidget {
 class _TecnicoDashboardState extends State<TecnicoDashboard> {
   int _currentIndex = 0;
   bool _isOnline = true;
+  String _tecnicoNomeLogado = 'Técnico';
   late final StreamSubscription<List<ConnectivityResult>> _connectivitySub;
 
   List<Ticket> _tickets = [];
@@ -69,6 +71,7 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
   @override
   void initState() {
     super.initState();
+    _carregarPerfilTecnicoLogado();
     ChamadosService.instance.inicializarESincronizar();
     ChamadosService.instance.realtimeTickNotifier.addListener(_onRealtimeAtualizacao);
     _carregarChamadosDoTecnico();
@@ -83,6 +86,59 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
         }
       }
     });
+  }
+
+  Future<void> _carregarPerfilTecnicoLogado() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+
+    final metaNome = user.userMetadata?['nome']?.toString().trim();
+    if (metaNome != null && metaNome.isNotEmpty && mounted) {
+      setState(() => _tecnicoNomeLogado = metaNome);
+    }
+
+    try {
+      final row = await Supabase.instance.client
+          .from('usuarios')
+          .select('nome')
+          .eq('id', user.id)
+          .maybeSingle();
+      final dbNome = row?['nome']?.toString().trim();
+      if (dbNome != null && dbNome.isNotEmpty && mounted) {
+        setState(() => _tecnicoNomeLogado = dbNome);
+      } else if ((metaNome == null || metaNome.isEmpty) && user.email != null && mounted) {
+        setState(() => _tecnicoNomeLogado = user.email!.split('@').first);
+      }
+    } catch (_) {
+      if ((metaNome == null || metaNome.isEmpty) && user.email != null && mounted) {
+        setState(() => _tecnicoNomeLogado = user.email!.split('@').first);
+      }
+    }
+  }
+
+  bool _chamadoPertenceAoTecnico(Chamado c, User? user) {
+    if (user == null) return true;
+    final uid = user.id;
+    if (c.tecnicoId == uid || c.tecnico2Id == uid) return true;
+
+    final semIds = (c.tecnicoId == null || c.tecnicoId!.isEmpty) &&
+        (c.tecnico2Id == null || c.tecnico2Id!.isEmpty);
+    if (!semIds) return false;
+
+    bool nomeBate(String? nomeCampo) {
+      if (nomeCampo == null || nomeCampo.trim().isEmpty) return false;
+      final a = nomeCampo.trim().toLowerCase();
+      final b = _tecnicoNomeLogado.trim().toLowerCase();
+      if (a == b) return true;
+      final pa = a.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+      final pb = b.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+      if (pa.length >= 2 && pb.length >= 2) {
+        return pa.first == pb.first && pa.last == pb.last;
+      }
+      return false;
+    }
+
+    return nomeBate(c.tecnicoNome) || nomeBate(c.tecnico2Nome);
   }
 
   void _onRealtimeAtualizacao() {
@@ -475,6 +531,11 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
             label: 'Chamados',
           ),
           BottomNavigationBarItem(
+            icon: Icon(Icons.table_chart_outlined),
+            activeIcon: Icon(Icons.table_chart),
+            label: 'Planilhas',
+          ),
+          BottomNavigationBarItem(
             icon: Icon(Icons.menu_book_outlined),
             activeIcon: Icon(Icons.menu_book),
             label: 'Manuais',
@@ -494,12 +555,28 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
       case 0:
         return _buildChamadosPage();
       case 1:
-        return _buildManuaisPage();
+        return _buildPlanilhasPage();
       case 2:
+        return _buildManuaisPage();
+      case 3:
         return _buildPerfilPage();
       default:
         return _buildChamadosPage();
     }
+  }
+
+  Widget _buildPlanilhasPage() {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) {
+      return const Center(
+        child: Text('Faça login para acessar suas planilhas de reembolso.'),
+      );
+    }
+    return PlanilhaReembolsoWidget(
+      tecnicoId: user.id,
+      tecnicoNome: _tecnicoNomeLogado,
+      isGerente: false,
+    );
   }
 
   // PAGE 1: CHAMADOS (TICKETS LIST)
@@ -532,9 +609,9 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Olá, Técnico!',
-                      style: TextStyle(
+                    Text(
+                      'Olá, $_tecnicoNomeLogado!',
+                      style: const TextStyle(
                         color: Colors.white,
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
@@ -675,12 +752,14 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
             child: ValueListenableBuilder<List<Chamado>>(
               valueListenable: ChamadosService.instance.chamadosNotifier,
               builder: (context, chamados, _) {
-                // Converte os chamados atribuídos pelo gerente em tickets para o técnico
+                final user = Supabase.instance.client.auth.currentUser;
+                // Converte os chamados atribuídos a este técnico em tickets
                 final chamadosAtribuidos = chamados
                     .where((c) =>
-                        c.status == ChamadoStatus.atribuido ||
-                        c.status == ChamadoStatus.emAtendimento ||
-                        c.status == ChamadoStatus.finalizado)
+                        _chamadoPertenceAoTecnico(c, user) &&
+                        (c.status == ChamadoStatus.atribuido ||
+                            c.status == ChamadoStatus.emAtendimento ||
+                            c.status == ChamadoStatus.finalizado))
                     .map((c) => Ticket(
                           id: c.numeroAts.toUpperCase().startsWith('ATS-') ? c.numeroAts : 'ATS-${c.numeroAts}',
                           chamadoId: c.id,
@@ -1298,8 +1377,10 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
   Widget _buildPerfilPage() {
     final user = Supabase.instance.client.auth.currentUser;
     final email = user?.email ?? "Não conectado";
-    final nome = user?.userMetadata?['nome']?.toString() ??
-        (user?.email != null ? user!.email!.split('@').first : 'Técnico Operacional');
+    final nome = _tecnicoNomeLogado != 'Técnico'
+        ? _tecnicoNomeLogado
+        : (user?.userMetadata?['nome']?.toString() ??
+            (user?.email != null ? user!.email!.split('@').first : 'Técnico Operacional'));
 
     // Estatísticas reais calculadas a partir da lista real de atendimentos
     final totalChamados = _tickets.length;

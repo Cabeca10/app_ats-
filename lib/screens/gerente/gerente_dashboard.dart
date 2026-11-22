@@ -9,14 +9,17 @@ import '../../models/ats_documentacao.dart';
 import '../../models/chamado.dart';
 import '../../models/dia_trabalho.dart';
 import '../../models/log_horas_custos.dart';
+import '../../models/planilha_reembolso.dart';
 import '../../models/tecnico.dart';
 import '../../services/ats_documentacao_service.dart';
 import '../../services/ats_pdf_service.dart';
 import '../../services/chamados_service.dart';
 import '../../services/orcamento_pdf_service.dart';
+import '../../services/planilha_reembolso_service.dart';
 import '../../services/tecnicos_service.dart';
 import '../../utils/url_helper.dart';
 import '../../widgets/documentacao_pasta_dialog.dart';
+import '../../widgets/planilha_reembolso_widget.dart';
 import 'chamados_list_screen.dart';
 
 const Color _emerald = Color(0xFF10B981);
@@ -42,6 +45,11 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
   bool _carregandoDocumentacoes = false;
   String _buscaRegistro = '';
   String _filtroStatusRegistro = 'todos';
+  int _planilhaAnoGerente = DateTime.now().year;
+  int _planilhaMesGerente = DateTime.now().month;
+  Tecnico? _tecnicoSelecionadoPlanilha;
+  Map<String, PlanilhaReembolso> _resumoPlanilhasMes = {};
+  bool _carregandoPlanilhasMes = false;
   final _dateFormat = DateFormat('dd/MM/yyyy HH:mm');
 
   List<String> get _tecnicosDisponiveis => TecnicosService.instance.nomesTecnicos;
@@ -49,8 +57,49 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
   @override
   void initState() {
     super.initState();
+    TecnicosService.instance.inicializarESincronizar();
     ChamadosService.instance.inicializarESincronizar();
     _carregarDocumentacoesGerente();
+  }
+
+  Future<void> _carregarPlanilhasMesGerente() async {
+    if (mounted) {
+      setState(() => _carregandoPlanilhasMes = true);
+    }
+    try {
+      await TecnicosService.instance.recarregarTecnicos();
+      final mapa = await PlanilhaReembolsoService.instance.listarPlanilhasDoMes(
+        ano: _planilhaAnoGerente,
+        mes: _planilhaMesGerente,
+      );
+      if (mounted) {
+        setState(() {
+          _resumoPlanilhasMes = mapa;
+          _carregandoPlanilhasMes = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _carregandoPlanilhasMes = false);
+      }
+    }
+  }
+
+  void _alterarMesPlanilhaGerente(int delta) {
+    var novoMes = _planilhaMesGerente + delta;
+    var novoAno = _planilhaAnoGerente;
+    if (novoMes < 1) {
+      novoMes = 12;
+      novoAno--;
+    } else if (novoMes > 12) {
+      novoMes = 1;
+      novoAno++;
+    }
+    setState(() {
+      _planilhaMesGerente = novoMes;
+      _planilhaAnoGerente = novoAno;
+    });
+    _carregarPlanilhasMesGerente();
   }
 
   Future<void> _carregarDocumentacoesGerente() async {
@@ -194,6 +243,11 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                   index: 3,
                 ),
                 _buildSidebarItem(
+                  icon: Icons.table_view_rounded,
+                  label: 'Planilhas',
+                  index: 4,
+                ),
+                _buildSidebarItem(
                   icon: Icons.people_outline,
                   label: 'Equipe Técnica',
                   index: 2,
@@ -273,7 +327,11 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                           OutlinedButton.icon(
                             onPressed: () {
                               ChamadosService.instance.recarregarChamados();
+                              TecnicosService.instance.recarregarTecnicos();
                               _carregarDocumentacoesGerente();
+                              if (_selectedMenuIndex == 4) {
+                                _carregarPlanilhasMesGerente();
+                              }
                             },
                             icon: const Icon(Icons.refresh, size: 18),
                             label: const Text('Atualizar'),
@@ -358,9 +416,18 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
     final isSelected = _selectedMenuIndex == index;
     return InkWell(
       onTap: () {
-        setState(() => _selectedMenuIndex = index);
-        if (index == 3) {
+        setState(() {
+          _selectedMenuIndex = index;
+          if (index == 4) {
+            _tecnicoSelecionadoPlanilha = null;
+          }
+        });
+        if (index == 2) {
+          TecnicosService.instance.recarregarTecnicos();
+        } else if (index == 3) {
           _carregarDocumentacoesGerente();
+        } else if (index == 4) {
+          _carregarPlanilhasMesGerente();
         }
       },
       child: Container(
@@ -401,6 +468,8 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
         return 'Equipe de Técnicos em Campo';
       case 3:
         return 'Registro de Chamados';
+      case 4:
+        return 'Planilhas de Reembolso dos Técnicos';
       default:
         return 'Painel do Gestor';
     }
@@ -418,6 +487,8 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
         return _buildEquipeTecnicaPage();
       case 3:
         return _buildRegistroChamadosPage();
+      case 4:
+        return _buildPlanilhasGerentePage();
       default:
         return _mostrarModoCards
             ? ChamadosListScreen(onAlternarParaTabela: () => setState(() => _mostrarModoCards = false))
@@ -1695,6 +1766,322 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
   }
 
   // ============================================================================
+  // PÁGINA 4: PLANILHAS DE REEMBOLSO DOS TÉCNICOS
+  // ============================================================================
+  Widget _buildPlanilhasGerentePage() {
+    final selecionado = _tecnicoSelecionadoPlanilha;
+    if (selecionado != null) {
+      return PlanilhaReembolsoWidget(
+        tecnicoId: selecionado.id,
+        tecnicoNome: selecionado.nome,
+        isGerente: true,
+        initialAno: _planilhaAnoGerente,
+        initialMes: _planilhaMesGerente,
+        onVoltar: () {
+          setState(() => _tecnicoSelecionadoPlanilha = null);
+          _carregarPlanilhasMesGerente();
+        },
+        onPlanilhaAtualizada: (p) {
+          setState(() {
+            _resumoPlanilhasMes = {..._resumoPlanilhasMes, p.tecnicoId: p};
+          });
+        },
+      );
+    }
+
+    return ValueListenableBuilder<List<Tecnico>>(
+      valueListenable: TecnicosService.instance.tecnicosNotifier,
+      builder: (context, tecnicos, _) {
+        double totalEquipeReceber = 0.0;
+        double totalEquipeKm = 0.0;
+        int enviadasOuAprovadas = 0;
+
+        for (final t in tecnicos) {
+          final p = _resumoPlanilhasMes[t.id];
+          if (p != null) {
+            totalEquipeReceber += p.totalGeralReceber;
+            totalEquipeKm += p.totalGeralKm;
+            if (p.status == StatusPlanilha.enviada || p.status == StatusPlanilha.aprovada) {
+              enviadasOuAprovadas++;
+            }
+          }
+        }
+
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Barra de seleção do período mensal
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    const Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Conferência de Planilhas e Reembolsos',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'Selecione o técnico abaixo para visualizar sua planilha completa, taxas, PDF e aprovar o pagamento.',
+                          style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFFCBD5E1)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                onPressed: _carregandoPlanilhasMes ? null : () => _alterarMesPlanilhaGerente(-1),
+                                icon: const Icon(Icons.chevron_left_rounded),
+                                tooltip: 'Mês anterior',
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 8),
+                                child: Text(
+                                  '${mesesPtBr[(_planilhaMesGerente - 1).clamp(0, 11)]} / $_planilhaAnoGerente',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0A369D)),
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: _carregandoPlanilhasMes ? null : () => _alterarMesPlanilhaGerente(1),
+                                icon: const Icon(Icons.chevron_right_rounded),
+                                tooltip: 'Próximo mês',
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        OutlinedButton.icon(
+                          onPressed: _carregandoPlanilhasMes ? null : _carregarPlanilhasMesGerente,
+                          icon: _carregandoPlanilhasMes
+                              ? const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0A369D)),
+                                )
+                              : const Icon(Icons.sync, size: 16),
+                          label: const Text('Atualizar'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Cards consolidados da equipe no mês
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildMetricCard(
+                      'Total Geral da Equipe',
+                      formatarMoedaBr(totalEquipeReceber),
+                      Icons.payments_outlined,
+                      const Color(0xFF10B981),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: _buildMetricCard(
+                      'Enviadas / Aprovadas',
+                      '$enviadasOuAprovadas de ${tecnicos.length}',
+                      Icons.assignment_turned_in_outlined,
+                      const Color(0xFF0A369D),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: _buildMetricCard(
+                      'Total KM da Equipe',
+                      '${formatarNumeroBr(totalEquipeKm)} km',
+                      Icons.route_outlined,
+                      const Color(0xFF7C3AED),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              if (tecnicos.isEmpty)
+                Container(
+                  padding: const EdgeInsets.all(32),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Column(
+                    children: [
+                      const Icon(Icons.engineering_outlined, size: 48, color: Color(0xFF94A3B8)),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Nenhum técnico cadastrado na equipe.',
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                      ),
+                      const SizedBox(height: 12),
+                      ElevatedButton.icon(
+                        onPressed: () => _abrirModalAdicionarTecnico(context),
+                        icon: const Icon(Icons.person_add_alt_1_rounded),
+                        label: const Text('Cadastrar Técnico'),
+                        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0A369D), foregroundColor: Colors.white),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                ...tecnicos.map((tec) {
+                  final p = _resumoPlanilhasMes[tec.id];
+                  final statusLabel = p != null ? StatusPlanilha.getLabel(p.status) : 'Não iniciada';
+                  Color statusBg;
+                  Color statusFg;
+                  switch (p?.status) {
+                    case StatusPlanilha.aprovada:
+                      statusBg = const Color(0xFFDCFCE7);
+                      statusFg = const Color(0xFF15803D);
+                      break;
+                    case StatusPlanilha.enviada:
+                      statusBg = const Color(0xFFDBEAFE);
+                      statusFg = const Color(0xFF1D4ED8);
+                      break;
+                    case StatusPlanilha.ajusteSolicitado:
+                      statusBg = const Color(0xFFFEF3C7);
+                      statusFg = const Color(0xFFB45309);
+                      break;
+                    default:
+                      statusBg = const Color(0xFFF1F5F9);
+                      statusFg = const Color(0xFF475569);
+                  }
+
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    elevation: 1,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Wrap(
+                        spacing: 16,
+                        runSpacing: 12,
+                        alignment: WrapAlignment.spaceBetween,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              CircleAvatar(
+                                radius: 22,
+                                backgroundColor: const Color(0xFF0A369D),
+                                child: Text(
+                                  tec.nome.isNotEmpty ? tec.nome[0].toUpperCase() : 'T',
+                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(tec.nome, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF0F172A))),
+                                      const SizedBox(width: 8),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                        decoration: BoxDecoration(color: statusBg, borderRadius: BorderRadius.circular(10)),
+                                        child: Text(statusLabel, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: statusFg)),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '${tec.email ?? "Sem e-mail"} • ${tec.telefone.isNotEmpty ? tec.telefone : "Sem telefone"}',
+                                    style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                          Wrap(
+                            spacing: 20,
+                            runSpacing: 8,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  const Text('Lançamentos', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                                  Text(
+                                    '${p?.itens.length ?? 0}',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF1E293B)),
+                                  ),
+                                ],
+                              ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  const Text('KM no mês', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                                  Text(
+                                    '${formatarNumeroBr(p?.totalGeralKm ?? 0.0)} km',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0A369D)),
+                                  ),
+                                ],
+                              ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  const Text('Total a Receber', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
+                                  Text(
+                                    formatarMoedaBr(p?.totalGeralReceber ?? 0.0),
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Color(0xFF059669)),
+                                  ),
+                                ],
+                              ),
+                              ElevatedButton.icon(
+                                onPressed: () => setState(() => _tecnicoSelecionadoPlanilha = tec),
+                                icon: const Icon(Icons.table_chart_outlined, size: 16),
+                                label: const Text('Abrir Planilha'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF0A369D),
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // ============================================================================
   // PÁGINA 2: EQUIPE TÉCNICA
   // ============================================================================
   Widget _buildEquipeTecnicaPage() {
@@ -1735,7 +2122,7 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                       ),
                       const SizedBox(height: 8),
                       const Text(
-                        'Adicione técnicos informando nome e telefone para que possam receber ordens de serviço e realizar atendimentos.',
+                        'Cadastre técnicos informando nome, telefone, e-mail e senha para criar contas reais com acesso completo ao aplicativo.',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 14,
@@ -1780,49 +2167,11 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                       Row(
                         children: [
                           OutlinedButton.icon(
-                            onPressed: () async {
-                              final confirm = await showDialog<bool>(
-                                context: context,
-                                builder: (ctx) => AlertDialog(
-                                  title: const Row(
-                                    children: [
-                                      Icon(Icons.cleaning_services_rounded, color: Color(0xFFEF4444)),
-                                      SizedBox(width: 8),
-                                      Text('Limpar Equipe Técnica?'),
-                                    ],
-                                  ),
-                                  content: const Text(
-                                    'Deseja remover todos os técnicos para reiniciar os cadastros do zero?',
-                                  ),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () => Navigator.pop(ctx, false),
-                                      child: const Text('Cancelar'),
-                                    ),
-                                    ElevatedButton(
-                                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEF4444)),
-                                      onPressed: () => Navigator.pop(ctx, true),
-                                      child: const Text('Apagar Todos', style: TextStyle(color: Colors.white)),
-                                    ),
-                                  ],
-                                ),
-                              );
-                              if (confirm == true) {
-                                await TecnicosService.instance.limparTudo(limparRemoto: true);
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('Equipe técnica limpa com sucesso!'),
-                                      backgroundColor: Color(0xFF10B981),
-                                    ),
-                                  );
-                                }
-                              }
-                            },
-                            icon: const Icon(Icons.delete_sweep_outlined, size: 16, color: Color(0xFFEF4444)),
-                            label: const Text('Limpar Equipe', style: TextStyle(color: Color(0xFFEF4444))),
+                            onPressed: () => TecnicosService.instance.recarregarTecnicos(),
+                            icon: const Icon(Icons.sync, size: 16, color: Color(0xFF0A369D)),
+                            label: const Text('Atualizar Equipe', style: TextStyle(color: Color(0xFF0A369D))),
                             style: OutlinedButton.styleFrom(
-                              side: const BorderSide(color: Color(0xFFFCA5A5)),
+                              side: const BorderSide(color: Color(0xFF93C5FD)),
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                             ),
@@ -1863,95 +2212,184 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                         margin: const EdgeInsets.only(bottom: 12),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                         elevation: 1,
-                        child: ListTile(
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          leading: CircleAvatar(
-                            radius: 22,
-                            backgroundColor: const Color(0xFF0A369D),
-                            child: Text(
-                              tec.nome.isNotEmpty ? tec.nome[0].toUpperCase() : 'T',
-                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
-                            ),
-                          ),
-                          title: Row(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          child: Wrap(
+                            spacing: 12,
+                            runSpacing: 10,
+                            alignment: WrapAlignment.spaceBetween,
+                            crossAxisAlignment: WrapCrossAlignment.center,
                             children: [
-                              Text(tec.nome, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                              if (tec.especialidade != null && tec.especialidade!.isNotEmpty) ...[
-                                const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFEFF6FF),
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: Text(
-                                    tec.especialidade!,
-                                    style: const TextStyle(color: Color(0xFF2563EB), fontSize: 11, fontWeight: FontWeight.w600),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const SizedBox(height: 4),
                               Row(
+                                mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  const Icon(Icons.phone, size: 13, color: Color(0xFF64748B)),
-                                  const SizedBox(width: 4),
-                                  Text(tec.telefone, style: const TextStyle(fontSize: 12, color: Color(0xFF475569))),
-                                  if (tec.email != null && tec.email!.isNotEmpty) ...[
-                                    const SizedBox(width: 12),
-                                    const Icon(Icons.email_outlined, size: 13, color: Color(0xFF64748B)),
-                                    const SizedBox(width: 4),
-                                    Text(tec.email!, style: const TextStyle(fontSize: 12, color: Color(0xFF475569))),
-                                  ],
+                                  CircleAvatar(
+                                    radius: 22,
+                                    backgroundColor: const Color(0xFF0A369D),
+                                    child: Text(
+                                      tec.nome.isNotEmpty ? tec.nome[0].toUpperCase() : 'T',
+                                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Wrap(
+                                        spacing: 8,
+                                        runSpacing: 4,
+                                        crossAxisAlignment: WrapCrossAlignment.center,
+                                        children: [
+                                          Text(tec.nome, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                                          if (tec.especialidade != null && tec.especialidade!.isNotEmpty)
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFFEFF6FF),
+                                                borderRadius: BorderRadius.circular(6),
+                                              ),
+                                              child: Text(
+                                                tec.especialidade!,
+                                                style: const TextStyle(color: Color(0xFF2563EB), fontSize: 11, fontWeight: FontWeight.w600),
+                                              ),
+                                            ),
+                                          if (tec.role == 'gerente_tecnico')
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFFFEF3C7),
+                                                borderRadius: BorderRadius.circular(6),
+                                              ),
+                                              child: const Text(
+                                                'Gerente + Técnico',
+                                                style: TextStyle(color: Color(0xFFB45309), fontSize: 10.5, fontWeight: FontWeight.w600),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Wrap(
+                                        spacing: 12,
+                                        runSpacing: 4,
+                                        children: [
+                                          if (tec.telefone.isNotEmpty)
+                                            Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                const Icon(Icons.phone, size: 13, color: Color(0xFF64748B)),
+                                                const SizedBox(width: 4),
+                                                Text(tec.telefone, style: const TextStyle(fontSize: 12, color: Color(0xFF475569))),
+                                              ],
+                                            ),
+                                          if (tec.email != null && tec.email!.isNotEmpty)
+                                            Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                const Icon(Icons.email_outlined, size: 13, color: Color(0xFF64748B)),
+                                                const SizedBox(width: 4),
+                                                Text(tec.email!, style: const TextStyle(fontSize: 12, color: Color(0xFF475569))),
+                                              ],
+                                            ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        emAndamento > 0
+                                            ? 'Em atendimento ($emAndamento ordem(ns) atribuída(s))'
+                                            : 'Disponível para novos atendimentos',
+                                        style: TextStyle(
+                                          color: emAndamento > 0 ? const Color(0xFF1D4ED8) : _emerald,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ],
                               ),
-                              const SizedBox(height: 4),
-                              Text(
-                                emAndamento > 0
-                                    ? 'Em atendimento ($emAndamento ordem(ns) atribuída(s))'
-                                    : 'Disponível para novos atendimentos',
-                                style: TextStyle(
-                                  color: emAndamento > 0 ? const Color(0xFF1D4ED8) : _emerald,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Chip(
-                                label: Text('$emAndamento O.S. ativas', style: const TextStyle(fontSize: 11)),
-                                backgroundColor: const Color(0xFFF1F5F9),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.delete_outline, size: 18, color: Colors.grey),
-                                tooltip: 'Remover técnico',
-                                onPressed: () async {
-                                  final confirm = await showDialog<bool>(
-                                    context: context,
-                                    builder: (c) => AlertDialog(
-                                      title: const Text('Remover Técnico'),
-                                      content: Text('Deseja remover ${tec.nome} da equipe?'),
-                                      actions: [
-                                        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancelar')),
-                                        ElevatedButton(
-                                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEF4444)),
-                                          onPressed: () => Navigator.pop(c, true),
-                                          child: const Text('Remover', style: TextStyle(color: Colors.white)),
-                                        ),
-                                      ],
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 6,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  Chip(
+                                    label: Text('$emAndamento O.S. ativas', style: const TextStyle(fontSize: 11)),
+                                    backgroundColor: const Color(0xFFF1F5F9),
+                                  ),
+                                  OutlinedButton.icon(
+                                    icon: const Icon(Icons.table_chart_outlined, size: 15),
+                                    label: const Text('Planilha'),
+                                    onPressed: () {
+                                      setState(() {
+                                        _tecnicoSelecionadoPlanilha = tec;
+                                        _selectedMenuIndex = 4;
+                                      });
+                                      _carregarPlanilhasMesGerente();
+                                    },
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: const Color(0xFF0A369D),
+                                      side: const BorderSide(color: Color(0xFF93C5FD)),
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                      textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
                                     ),
-                                  );
-                                  if (confirm == true) {
-                                    await TecnicosService.instance.removerTecnico(tec.id);
-                                  }
-                                },
+                                  ),
+                                  OutlinedButton.icon(
+                                    icon: const Icon(Icons.edit_outlined, size: 15),
+                                    label: const Text('Editar / Senha'),
+                                    onPressed: () => _abrirModalEditarTecnico(context, tec),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: const Color(0xFF334155),
+                                      side: const BorderSide(color: Color(0xFFCBD5E1)),
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                      textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline, size: 20, color: Color(0xFFDC2626)),
+                                    tooltip: 'Remover técnico',
+                                    onPressed: () async {
+                                      final confirm = await showDialog<bool>(
+                                        context: context,
+                                        builder: (c) => AlertDialog(
+                                          title: const Text('Remover Técnico'),
+                                          content: Text(
+                                            'Deseja remover ${tec.nome} da equipe? A conta de acesso do técnico será desativada/removida do sistema.',
+                                          ),
+                                          actions: [
+                                            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancelar')),
+                                            ElevatedButton(
+                                              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEF4444)),
+                                              onPressed: () => Navigator.pop(c, true),
+                                              child: const Text('Remover', style: TextStyle(color: Colors.white)),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                      if (confirm == true) {
+                                        try {
+                                          await TecnicosService.instance.removerTecnico(tec.id);
+                                          if (context.mounted) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(
+                                                content: Text('Técnico ${tec.nome} removido.'),
+                                                backgroundColor: const Color(0xFF10B981),
+                                              ),
+                                            );
+                                          }
+                                        } catch (e) {
+                                          if (context.mounted) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(
+                                                content: Text('Erro ao remover técnico: ${e.toString().replaceFirst("Exception: ", "")}'),
+                                                backgroundColor: const Color(0xFFDC2626),
+                                              ),
+                                            );
+                                          }
+                                        }
+                                      }
+                                    },
+                                  ),
+                                ],
                               ),
                             ],
                           ),
@@ -1969,25 +2407,293 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
   }
 
   // ============================================================================
-  // MODAL: ADICIONAR NOVO TÉCNICO
+  // MODAL: ADICIONAR NOVO TÉCNICO (CONTA REAL NO AUTH + PUBLIC.USUARIOS)
   // ============================================================================
   void _abrirModalAdicionarTecnico(BuildContext context) {
     final formKey = GlobalKey<FormState>();
     final nomeCtrl = TextEditingController();
     final telefoneCtrl = TextEditingController();
     final emailCtrl = TextEditingController();
+    final senhaCtrl = TextEditingController();
     final especialidadeCtrl = TextEditingController();
+    bool obscureSenha = true;
+    bool salvando = false;
 
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (dialogCtx) {
-        return AlertDialog(
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Row(
+                children: [
+                  Icon(Icons.person_add_alt_1_rounded, color: Color(0xFF0A369D)),
+                  SizedBox(width: 10),
+                  Text('Adicionar Novo Técnico', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              content: SizedBox(
+                width: 460,
+                child: Form(
+                  key: formKey,
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEFF6FF),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: const Color(0xFFBFDBFE)),
+                          ),
+                          child: const Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.verified_user_outlined, size: 18, color: Color(0xFF1D4ED8)),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Será criada uma conta real de acesso para este técnico entrar no app com suas próprias O.S., documentação, relatório final e planilha de reembolso.',
+                                  style: TextStyle(fontSize: 12, color: Color(0xFF1E3A8A)),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: nomeCtrl,
+                          decoration: InputDecoration(
+                            labelText: 'Nome do Técnico *',
+                            hintText: 'Ex: Carlos Silva',
+                            prefixIcon: const Icon(Icons.person_outline),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                            isDense: true,
+                          ),
+                          validator: (v) => v == null || v.trim().isEmpty ? 'Informe o nome do técnico' : null,
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: telefoneCtrl,
+                          keyboardType: TextInputType.phone,
+                          decoration: InputDecoration(
+                            labelText: 'Telefone / WhatsApp *',
+                            hintText: 'Ex: (47) 99876-5432',
+                            prefixIcon: const Icon(Icons.phone_outlined),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                            isDense: true,
+                          ),
+                          validator: (v) => v == null || v.trim().isEmpty ? 'Informe o telefone de contato' : null,
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: emailCtrl,
+                          keyboardType: TextInputType.emailAddress,
+                          decoration: InputDecoration(
+                            labelText: 'E-mail de acesso *',
+                            hintText: 'Ex: carlos.silva@pmach.com.br',
+                            prefixIcon: const Icon(Icons.email_outlined),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                            isDense: true,
+                          ),
+                          validator: (v) {
+                            final email = (v ?? '').trim();
+                            if (email.isEmpty) return 'Informe o e-mail de acesso';
+                            if (!email.contains('@') || !email.contains('.')) return 'Informe um e-mail válido';
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: senhaCtrl,
+                          obscureText: obscureSenha,
+                          decoration: InputDecoration(
+                            labelText: 'Senha inicial * (mín. 6 caracteres)',
+                            hintText: 'Digite uma senha para o primeiro acesso',
+                            prefixIcon: const Icon(Icons.lock_outline),
+                            suffixIcon: IconButton(
+                              icon: Icon(obscureSenha ? Icons.visibility_off_outlined : Icons.visibility_outlined),
+                              onPressed: () => setDialogState(() => obscureSenha = !obscureSenha),
+                            ),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                            isDense: true,
+                          ),
+                          validator: (v) {
+                            if (v == null || v.trim().isEmpty) return 'Informe uma senha inicial';
+                            if (v.trim().length < 6) return 'A senha deve ter pelo menos 6 caracteres';
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: especialidadeCtrl,
+                          decoration: InputDecoration(
+                            labelText: 'Especialidade (opcional)',
+                            hintText: 'Ex: Manutenção Mecânica / CNC',
+                            prefixIcon: const Icon(Icons.build_outlined),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                            isDense: true,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: salvando ? null : () => Navigator.pop(dialogCtx),
+                  child: const Text('Cancelar'),
+                ),
+                ElevatedButton.icon(
+                  icon: salvando
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                        )
+                      : const Icon(Icons.check, size: 16),
+                  label: Text(salvando ? 'Criando Conta...' : 'Criar Conta do Técnico'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0A369D),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: salvando
+                      ? null
+                      : () async {
+                          if (!formKey.currentState!.validate()) return;
+                          final nome = nomeCtrl.text.trim();
+                          final telefone = telefoneCtrl.text.trim();
+                          final email = emailCtrl.text.trim();
+                          final senha = senhaCtrl.text.trim();
+                          final especialidade = especialidadeCtrl.text.trim().isNotEmpty ? especialidadeCtrl.text.trim() : null;
+
+                          setDialogState(() => salvando = true);
+                          try {
+                            await TecnicosService.instance.adicionarTecnico(
+                              nome: nome,
+                              telefone: telefone,
+                              email: email,
+                              password: senha,
+                              especialidade: especialidade,
+                            );
+
+                            if (!context.mounted) return;
+                            Navigator.pop(dialogCtx);
+
+                            await showDialog(
+                              context: context,
+                              builder: (okCtx) => AlertDialog(
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                title: const Row(
+                                  children: [
+                                    Icon(Icons.check_circle_rounded, color: Color(0xFF10B981)),
+                                    SizedBox(width: 8),
+                                    Expanded(child: Text('Técnico Cadastrado com Sucesso!')),
+                                  ],
+                                ),
+                                content: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('A conta real de $nome já está ativa e pronta para uso.'),
+                                    const SizedBox(height: 12),
+                                    Container(
+                                      width: double.infinity,
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFF8FAFC),
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                                      ),
+                                      child: SelectableText(
+                                        'Portal: https://pmach-ats.web.app (Perfil Técnico)\nE-mail: $email\nSenha: $senha',
+                                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, height: 1.5),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                actions: [
+                                  OutlinedButton.icon(
+                                    onPressed: () async {
+                                      await Clipboard.setData(
+                                        ClipboardData(
+                                          text: 'Acesso ATS Serviços (Perfil: Técnico)\nLink: https://pmach-ats.web.app\nE-mail: $email\nSenha: $senha',
+                                        ),
+                                      );
+                                      if (okCtx.mounted) {
+                                        ScaffoldMessenger.of(okCtx).showSnackBar(
+                                          const SnackBar(
+                                            content: Text('Dados de acesso copiados!'),
+                                            backgroundColor: Color(0xFF10B981),
+                                          ),
+                                        );
+                                      }
+                                    },
+                                    icon: const Icon(Icons.copy_rounded, size: 16),
+                                    label: const Text('Copiar Dados de Acesso'),
+                                  ),
+                                  ElevatedButton(
+                                    onPressed: () => Navigator.pop(okCtx),
+                                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0A369D), foregroundColor: Colors.white),
+                                    child: const Text('Fechar'),
+                                  ),
+                                ],
+                              ),
+                            );
+                          } catch (e) {
+                            if (ctx.mounted) {
+                              setDialogState(() => salvando = false);
+                            }
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Erro ao criar técnico: ${e.toString().replaceFirst("Exception: ", "")}'),
+                                  backgroundColor: const Color(0xFFDC2626),
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            }
+                          }
+                        },
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // ============================================================================
+  // MODAL: EDITAR DADOS / REDEFINIR SENHA DO TÉCNICO
+  // ============================================================================
+  void _abrirModalEditarTecnico(BuildContext context, Tecnico tec) {
+    final formKey = GlobalKey<FormState>();
+    final nomeCtrl = TextEditingController(text: tec.nome);
+    final telefoneCtrl = TextEditingController(text: tec.telefone);
+    final especialidadeCtrl = TextEditingController(text: tec.especialidade ?? '');
+    final novaSenhaCtrl = TextEditingController();
+    bool obscureNovaSenha = true;
+    bool salvando = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: const Row(
             children: [
-              Icon(Icons.person_add_alt_1_rounded, color: Color(0xFF0A369D)),
+              Icon(Icons.manage_accounts_outlined, color: Color(0xFF0A369D)),
               SizedBox(width: 10),
-              Text('Adicionar Técnico', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              Text('Editar Técnico / Redefinir Senha', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
             ],
           ),
           content: SizedBox(
@@ -1999,57 +2705,58 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Cadastre as informações de contato do profissional:',
-                      style: TextStyle(color: Color(0xFF64748B), fontSize: 13),
-                    ),
-                    const SizedBox(height: 16),
+                    if (tec.email != null && tec.email!.isNotEmpty) ...[
+                      Text('E-mail de acesso: ${tec.email}', style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Color(0xFF475569))),
+                      const SizedBox(height: 12),
+                    ],
                     TextFormField(
                       controller: nomeCtrl,
                       decoration: InputDecoration(
-                        labelText: 'Nome do Técnico *',
-                        hintText: 'Ex: Carlos Silva',
-                        prefixIcon: const Icon(Icons.person_outline),
+                        labelText: 'Nome *',
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                         isDense: true,
                       ),
-                      validator: (v) => v == null || v.trim().isEmpty ? 'Informe o nome do técnico' : null,
+                      validator: (v) => v == null || v.trim().isEmpty ? 'Informe o nome' : null,
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 12),
                     TextFormField(
                       controller: telefoneCtrl,
                       keyboardType: TextInputType.phone,
                       decoration: InputDecoration(
                         labelText: 'Telefone / WhatsApp *',
-                        hintText: 'Ex: (47) 99876-5432',
-                        prefixIcon: const Icon(Icons.phone_outlined),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                         isDense: true,
                       ),
-                      validator: (v) => v == null || v.trim().isEmpty ? 'Informe o telefone de contato' : null,
+                      validator: (v) => v == null || v.trim().isEmpty ? 'Informe o telefone' : null,
                     ),
-                    const SizedBox(height: 14),
-                    TextFormField(
-                      controller: emailCtrl,
-                      keyboardType: TextInputType.emailAddress,
-                      decoration: InputDecoration(
-                        labelText: 'E-mail (opcional)',
-                        hintText: 'Ex: carlos.silva@pmach.com.br',
-                        prefixIcon: const Icon(Icons.email_outlined),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                        isDense: true,
-                      ),
-                    ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 12),
                     TextFormField(
                       controller: especialidadeCtrl,
                       decoration: InputDecoration(
                         labelText: 'Especialidade (opcional)',
-                        hintText: 'Ex: Manutenção Mecânica CNC',
-                        prefixIcon: const Icon(Icons.build_outlined),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                         isDense: true,
                       ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: novaSenhaCtrl,
+                      obscureText: obscureNovaSenha,
+                      decoration: InputDecoration(
+                        labelText: 'Nova Senha (deixe em branco para manter)',
+                        suffixIcon: IconButton(
+                          icon: Icon(obscureNovaSenha ? Icons.visibility_off_outlined : Icons.visibility_outlined),
+                          onPressed: () => setDialogState(() => obscureNovaSenha = !obscureNovaSenha),
+                        ),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        isDense: true,
+                      ),
+                      validator: (v) {
+                        if (v != null && v.trim().isNotEmpty && v.trim().length < 6) {
+                          return 'A nova senha deve ter pelo menos 6 caracteres';
+                        }
+                        return null;
+                      },
                     ),
                   ],
                 ),
@@ -2058,47 +2765,49 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(dialogCtx),
+              onPressed: salvando ? null : () => Navigator.pop(dialogCtx),
               child: const Text('Cancelar'),
             ),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.check, size: 16),
-              label: const Text('Salvar Técnico'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF0A369D),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-              onPressed: () async {
-                if (formKey.currentState!.validate()) {
-                  final nome = nomeCtrl.text.trim();
-                  final telefone = telefoneCtrl.text.trim();
-                  final email = emailCtrl.text.trim().isNotEmpty ? emailCtrl.text.trim() : null;
-                  final especialidade = especialidadeCtrl.text.trim().isNotEmpty ? especialidadeCtrl.text.trim() : null;
-
-                  await TecnicosService.instance.adicionarTecnico(
-                    nome: nome,
-                    telefone: telefone,
-                    email: email,
-                    especialidade: especialidade,
-                  );
-
-                  if (context.mounted) {
-                    Navigator.pop(dialogCtx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Técnico $nome adicionado à equipe com sucesso!'),
-                        backgroundColor: const Color(0xFF10B981),
-                      ),
-                    );
-                  }
-                }
-              },
+            ElevatedButton(
+              onPressed: salvando
+                  ? null
+                  : () async {
+                      if (!formKey.currentState!.validate()) return;
+                      setDialogState(() => salvando = true);
+                      try {
+                        await TecnicosService.instance.atualizarTecnico(
+                          id: tec.id,
+                          nome: nomeCtrl.text.trim(),
+                          telefone: telefoneCtrl.text.trim(),
+                          especialidade: especialidadeCtrl.text.trim().isNotEmpty ? especialidadeCtrl.text.trim() : null,
+                          novaSenha: novaSenhaCtrl.text.trim().isNotEmpty ? novaSenhaCtrl.text.trim() : null,
+                        );
+                        if (!context.mounted) return;
+                        Navigator.pop(dialogCtx);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Dados do técnico atualizados com sucesso!'),
+                            backgroundColor: Color(0xFF10B981),
+                          ),
+                        );
+                      } catch (e) {
+                        if (ctx.mounted) setDialogState(() => salvando = false);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Erro ao atualizar técnico: ${e.toString().replaceFirst("Exception: ", "")}'),
+                              backgroundColor: const Color(0xFFDC2626),
+                            ),
+                          );
+                        }
+                      }
+                    },
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0A369D), foregroundColor: Colors.white),
+              child: Text(salvando ? 'Salvando...' : 'Salvar Alterações'),
             ),
           ],
-        );
-      },
+        ),
+      ),
     );
   }
 
@@ -2363,10 +3072,14 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                     final tec2 = (tecnico2Selecionado != 'Nenhum' && tecnico2Selecionado.trim().isNotEmpty)
                         ? tecnico2Selecionado.trim()
                         : null;
+                    final tec1Obj = TecnicosService.instance.buscarPorNome(tecnico1Selecionado);
+                    final tec2Obj = tec2 != null ? TecnicosService.instance.buscarPorNome(tec2) : null;
                     await ChamadosService.instance.atribuirTecnico(
                       chamadoId: chamado.id,
                       tecnicoNome: tecnico1Selecionado,
+                      tecnicoId: tec1Obj?.id,
                       tecnico2Nome: tec2,
+                      tecnico2Id: tec2Obj?.id,
                     );
                     if (context.mounted) {
                       final msg = tec2 != null

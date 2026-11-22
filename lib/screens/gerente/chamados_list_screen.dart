@@ -1182,10 +1182,14 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
                   final tec2 = (tecnico2Selecionado != 'Nenhum' && tecnico2Selecionado.trim().isNotEmpty)
                       ? tecnico2Selecionado.trim()
                       : null;
+                  final tec1Obj = TecnicosService.instance.buscarPorNome(tecnico1Selecionado);
+                  final tec2Obj = tec2 != null ? TecnicosService.instance.buscarPorNome(tec2) : null;
                   final success = await ChamadosService.instance.atribuirTecnico(
                     chamadoId: chamado.id,
                     tecnicoNome: tecnico1Selecionado,
+                    tecnicoId: tec1Obj?.id,
                     tecnico2Nome: tec2,
+                    tecnico2Id: tec2Obj?.id,
                   );
 
                   if (context.mounted && success) {

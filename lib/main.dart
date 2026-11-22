@@ -7,6 +7,7 @@ import 'screens/gerente/gerente_dashboard.dart';
 import 'screens/cliente/orcamento_client_screen.dart';
 import 'services/offline_storage_service.dart';
 import 'services/chamados_service.dart';
+import 'services/tecnicos_service.dart';
 export 'utils/url_helper.dart' show kAppBaseUrl;
 
 // ============================================================================
@@ -181,20 +182,24 @@ class _AuthWrapperState extends State<AuthWrapper> {
   }
 
   Future<void> _resolverPerfilAutomatico(User user) async {
-    String? role = user.userMetadata?['role']?.toString();
+    String? role;
+    try {
+      final row = await Supabase.instance.client
+          .from('usuarios')
+          .select('role, perfil')
+          .eq('id', user.id)
+          .maybeSingle();
+      if (row != null) {
+        role = (row['role'] ?? row['perfil'])?.toString();
+      }
+    } catch (_) {}
+
     if (role == null || role.isEmpty) {
-      try {
-        final row =
-            await Supabase.instance.client
-                .from('usuarios')
-                .select('perfil')
-                .eq('id', user.id)
-                .maybeSingle();
-        if (row != null && row['perfil'] != null) {
-          role = row['perfil'].toString();
-        }
-      } catch (_) {}
+      role = user.appMetadata['role']?.toString() ??
+          user.userMetadata?['role']?.toString();
     }
+
+    TecnicosService.instance.inicializarESincronizar();
 
     if (role != null) {
       final normalizedRole = role.toLowerCase().trim();
@@ -203,7 +208,8 @@ class _AuthWrapperState extends State<AuthWrapper> {
       final String novoRole;
       if (normalizedRole == 'gerente_tecnico') {
         // Perfil híbrido: mantém a aba selecionada pelo usuário (persistida no Hive)
-        final rolePersistida = OfflineStorageService.instance.obterPerfilSelecionado();
+        final rolePersistida =
+            OfflineStorageService.instance.obterPerfilSelecionado();
         final efetiva = rolePersistida ?? AppAuthState.selectedRole;
         novoRole = (efetiva == 'Gerente') ? 'Gerente' : 'Técnico';
       } else if (normalizedRole == 'gerente') {

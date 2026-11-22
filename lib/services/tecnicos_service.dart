@@ -1,10 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:uuid/uuid.dart';
 import '../models/tecnico.dart';
 import 'offline_storage_service.dart';
 
-/// Serviço para gerenciar a equipe de técnicos em campo
+/// Serviço para gerenciar a equipe de técnicos em campo com contas reais no Supabase Auth + public.usuarios
 class TecnicosService {
   static TecnicosService? _instance;
   static TecnicosService get instance => _instance ??= TecnicosService._internal();
@@ -19,15 +18,19 @@ class TecnicosService {
   TecnicosService._internal()
       : tecnicosNotifier = ValueNotifier<List<Tecnico>>([]) {
     _isInitialized = true;
-    _carregarDados();
+    _carregarDadosLocais();
   }
 
-  void _carregarDados() {
+  void _carregarDadosLocais() {
     try {
-      // 1. Carrega estritamente os técnicos cadastrados pelo usuário no cache local
       final cached = OfflineStorageService.instance.obterTecnicosCache();
       if (cached.isNotEmpty) {
-        tecnicosNotifier.value = cached.map((m) => Tecnico.fromMap(m)).toList();
+        final list = cached
+            .map((m) => Tecnico.fromMap(m))
+            .where((t) => t.ativo)
+            .toList()
+          ..sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
+        tecnicosNotifier.value = list;
       } else {
         tecnicosNotifier.value = [];
       }
@@ -39,92 +42,188 @@ class TecnicosService {
     }
   }
 
-  /// Adiciona um novo técnico na equipe e persiste
+  /// Carrega do cache local e sincroniza a equipe técnica real a partir de public.usuarios
+  Future<void> inicializarESincronizar() async {
+    if (tecnicosNotifier.value.isEmpty) {
+      _carregarDadosLocais();
+    }
+    await recarregarTecnicos();
+  }
+
+  /// Consulta public.usuarios filtrando perfis 'tecnico' e 'gerente_tecnico' ativos
+  Future<void> recarregarTecnicos() async {
+    try {
+      final session = Supabase.instance.client.auth.currentSession;
+      if (session == null) return;
+
+      final response = await Supabase.instance.client
+          .from('usuarios')
+          .select('id, nome, email, telefone, especialidade, role, perfil, ativo, created_at, criado_em')
+          .order('nome', ascending: true);
+
+      final lista = <Tecnico>[];
+      for (final raw in (response as List)) {
+        final map = Map<String, dynamic>.from(raw as Map);
+        final roleStr = (map['role'] ?? map['perfil'] ?? '').toString().toLowerCase().trim();
+        final isAtivo = map['ativo'] is bool ? (map['ativo'] as bool) : true;
+        if (isAtivo && (roleStr == 'tecnico' || roleStr == 'gerente_tecnico')) {
+          lista.add(Tecnico.fromMap(map));
+        }
+      }
+
+      lista.sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
+      tecnicosNotifier.value = lista;
+      await _salvarLocalmente();
+    } catch (e, stack) {
+      if (kDebugMode) {
+        debugPrint('[TecnicosService] Falha ao sincronizar equipe técnica com Supabase: $e\n$stack');
+      }
+    }
+  }
+
+  String _extrairErroEdgeFunction(Object err) {
+    if (err is FunctionException) {
+      final details = err.details;
+      if (details is Map && details['error'] != null) {
+        return details['error'].toString();
+      }
+      if (details != null && details.toString().trim().isNotEmpty) {
+        return details.toString();
+      }
+      return err.reasonPhrase ?? 'Erro ao comunicar com o servidor (${err.status}).';
+    }
+    return err.toString().replaceFirst('Exception: ', '');
+  }
+
+  /// Cria uma conta real de técnico (Auth + public.usuarios) via Edge Function manage-technician
   Future<Tecnico> adicionarTecnico({
     required String nome,
     required String telefone,
-    String? fone,
-    String? email,
+    required String email,
+    required String password,
     String? especialidade,
   }) async {
-    final telFinal = telefone.trim().isNotEmpty ? telefone.trim() : (fone?.trim() ?? '');
-    final novo = Tecnico(
-      id: const Uuid().v4(),
-      nome: nome.trim(),
-      telefone: telFinal,
-      email: email?.trim(),
-      especialidade: especialidade?.trim(),
-    );
-
-    tecnicosNotifier.value = [...tecnicosNotifier.value, novo];
-    await _salvarLocalmente();
-
-    // Tenta salvar no Supabase remoto se disponível
     try {
-      final userEmail = email != null && email.isNotEmpty
-          ? email.trim()
-          : '${nome.toLowerCase().replaceAll(RegExp(r'\s+'), '.')}@pmach.com.br';
+      final res = await Supabase.instance.client.functions.invoke(
+        'manage-technician',
+        body: {
+          'action': 'create',
+          'nome': nome.trim(),
+          'telefone': telefone.trim(),
+          'email': email.trim(),
+          'password': password.trim(),
+          if (especialidade != null && especialidade.trim().isNotEmpty)
+            'especialidade': especialidade.trim(),
+        },
+      );
 
-      await Supabase.instance.client.from('usuarios').insert({
-        'id': novo.id,
-        'nome': novo.nome,
-        'email': userEmail,
-        'telefone': novo.telefone,
-        'perfil': 'tecnico',
-      });
-      if (kDebugMode) {
-        debugPrint('[TecnicosService] Técnico ${novo.nome} salvo remotamente no Supabase.');
+      final data = res.data;
+      if (res.status != 200 || data is! Map || data['tecnico'] == null) {
+        final msg = (data is Map && data['error'] != null)
+            ? data['error'].toString()
+            : 'Erro ao cadastrar técnico no servidor.';
+        throw Exception(msg);
       }
-    } catch (e, stack) {
-      if (kDebugMode) {
-        debugPrint('[TecnicosService] Técnico salvo localmente (offline): $e\n$stack');
-      }
-    }
 
-    return novo;
-  }
+      final novo = Tecnico.fromMap(Map<String, dynamic>.from(data['tecnico'] as Map));
+      final atualizada = [
+        ...tecnicosNotifier.value.where((t) => t.id != novo.id),
+        novo,
+      ]..sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
 
-  /// Remove um técnico da lista e do banco remoto se existir
-  Future<void> removerTecnico(String id) async {
-    tecnicosNotifier.value = tecnicosNotifier.value.where((t) => t.id != id).toList();
-    await _salvarLocalmente();
-    try {
-      await Supabase.instance.client.from('usuarios').delete().eq('id', id);
-    } catch (e, stackTrace) {
-      if (kDebugMode) {
-        debugPrint('[TecnicosService] Erro ao remover técnico no Supabase: $e\n$stackTrace');
-      }
-    }
-  }
-
-  /// Limpa toda a equipe técnica da simulação
-  Future<void> limparTudo({bool limparRemoto = true}) async {
-    try {
-      tecnicosNotifier.value = [];
+      tecnicosNotifier.value = atualizada;
       await _salvarLocalmente();
-      if (limparRemoto) {
-        try {
-          await Supabase.instance.client
-              .from('usuarios')
-              .delete()
-              .eq('perfil', 'tecnico');
-          if (kDebugMode) {
-            debugPrint('[TecnicosService] Técnicos remotos removidos com sucesso.');
-          }
-        } catch (e, stack) {
-          if (kDebugMode) {
-            debugPrint('[TecnicosService] Aviso ao limpar tecnicos remotos: $e\n$stack');
-          }
-        }
-      }
-      if (kDebugMode) {
-        debugPrint('[TecnicosService] Equipe técnica limpa.');
-      }
-    } catch (e, stack) {
-      if (kDebugMode) {
-        debugPrint('[TecnicosService] Erro em limparTudo: $e\n$stack');
-      }
+      return novo;
+    } catch (e) {
+      throw Exception(_extrairErroEdgeFunction(e));
     }
+  }
+
+  /// Atualiza dados e/ou redefine a senha de um técnico existente via Edge Function manage-technician
+  Future<Tecnico> atualizarTecnico({
+    required String id,
+    required String nome,
+    required String telefone,
+    String? especialidade,
+    String? novaSenha,
+  }) async {
+    try {
+      final res = await Supabase.instance.client.functions.invoke(
+        'manage-technician',
+        body: {
+          'action': 'update',
+          'id': id,
+          'nome': nome.trim(),
+          'telefone': telefone.trim(),
+          'especialidade': especialidade?.trim() ?? '',
+          if (novaSenha != null && novaSenha.trim().isNotEmpty)
+            'password': novaSenha.trim(),
+        },
+      );
+
+      final data = res.data;
+      if (res.status != 200 || data is! Map || data['tecnico'] == null) {
+        final msg = (data is Map && data['error'] != null)
+            ? data['error'].toString()
+            : 'Erro ao atualizar dados do técnico.';
+        throw Exception(msg);
+      }
+
+      final atualizado = Tecnico.fromMap(Map<String, dynamic>.from(data['tecnico'] as Map));
+      final lista = [
+        ...tecnicosNotifier.value.where((t) => t.id != atualizado.id),
+        atualizado,
+      ]..sort((a, b) => a.nome.toLowerCase().compareTo(b.nome.toLowerCase()));
+
+      tecnicosNotifier.value = lista;
+      await _salvarLocalmente();
+      return atualizado;
+    } catch (e) {
+      throw Exception(_extrairErroEdgeFunction(e));
+    }
+  }
+
+  /// Remove um técnico do Auth e de public.usuarios via Edge Function manage-technician
+  Future<void> removerTecnico(String id) async {
+    try {
+      final res = await Supabase.instance.client.functions.invoke(
+        'manage-technician',
+        body: {
+          'action': 'delete',
+          'id': id,
+        },
+      );
+
+      final data = res.data;
+      if (res.status != 200) {
+        final msg = (data is Map && data['error'] != null)
+            ? data['error'].toString()
+            : 'Erro ao remover técnico no servidor.';
+        throw Exception(msg);
+      }
+
+      tecnicosNotifier.value = tecnicosNotifier.value.where((t) => t.id != id).toList();
+      await _salvarLocalmente();
+    } catch (e) {
+      throw Exception(_extrairErroEdgeFunction(e));
+    }
+  }
+
+  Tecnico? buscarPorNome(String? nome) {
+    if (nome == null || nome.trim().isEmpty) return null;
+    final alvo = nome.trim().toLowerCase();
+    for (final t in tecnicosNotifier.value) {
+      if (t.nome.trim().toLowerCase() == alvo) return t;
+    }
+    return null;
+  }
+
+  Tecnico? buscarPorId(String? id) {
+    if (id == null || id.trim().isEmpty) return null;
+    for (final t in tecnicosNotifier.value) {
+      if (t.id == id.trim()) return t;
+    }
+    return null;
   }
 
   Future<void> _salvarLocalmente() async {
