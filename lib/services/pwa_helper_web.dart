@@ -1,15 +1,23 @@
 import 'dart:js_interop';
 
 @JS('promptPwaInstallation')
-external void _promptPwaInstallation();
+external bool _promptPwaInstallation();
 
 @JS('pwaInstallPrompt')
 external JSAny? get _pwaInstallPrompt;
 
-void promptPwaInstallation() {
+@JS('isRunningStandalone')
+external bool _isRunningStandalone();
+
+@JS('requestBrowserOrientation')
+external void _requestBrowserOrientation(JSString mode);
+
+bool promptPwaInstallation() {
   try {
-    _promptPwaInstallation();
-  } catch (_) {}
+    return _promptPwaInstallation();
+  } catch (_) {
+    return false;
+  }
 }
 
 bool isPwaInstallAvailable() {
@@ -18,4 +26,18 @@ bool isPwaInstallAvailable() {
   } catch (_) {
     return false;
   }
+}
+
+bool isRunningStandalone() {
+  try {
+    return _isRunningStandalone();
+  } catch (_) {
+    return false;
+  }
+}
+
+void requestBrowserOrientation(String mode) {
+  try {
+    _requestBrowserOrientation(mode.toJS);
+  } catch (_) {}
 }

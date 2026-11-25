@@ -1,4 +1,8 @@
 /// Stub padrão para plataformas não-web (Desktop/Mobile nativo)
-void promptPwaInstallation() {}
+bool promptPwaInstallation() => false;
 
 bool isPwaInstallAvailable() => false;
+
+bool isRunningStandalone() => false;
+
+void requestBrowserOrientation(String mode) {}

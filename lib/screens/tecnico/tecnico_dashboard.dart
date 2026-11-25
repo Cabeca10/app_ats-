@@ -12,6 +12,7 @@ import '../../models/log_horas_custos.dart';
 import '../../services/ats_pdf_service.dart';
 import '../../services/chamados_service.dart';
 import '../../services/offline_storage_service.dart';
+import '../../services/orientation_service.dart';
 import '../../services/orcamento_pdf_service.dart';
 import '../../services/pwa_helper.dart';
 import '../../widgets/planilha_reembolso_widget.dart';
@@ -417,35 +418,39 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
               ),
             ),
             const SizedBox(width: 10),
-            const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'ATS Serviços',
-                  style: TextStyle(
-                    color: Color(0xFF0C1A30),
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15,
-                    height: 1.1,
+            const Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'ATS Serviços',
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Color(0xFF0C1A30),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                      height: 1.1,
+                    ),
                   ),
-                ),
-                Text(
-                  'Equipamentos e Peças Ltda',
-                  style: TextStyle(
-                    color: Color(0xFF64748B),
-                    fontWeight: FontWeight.w500,
-                    fontSize: 10,
+                  Text(
+                    'Equipamentos e Peças Ltda',
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Color(0xFF64748B),
+                      fontWeight: FontWeight.w500,
+                      fontSize: 10,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
         ),
         actions: [
           // Connection Status Toggle / Display
           Container(
-            margin: const EdgeInsets.only(right: 8),
+            margin: const EdgeInsets.only(right: 4),
             child: TextButton.icon(
               onPressed: () {
                 setState(() {
@@ -461,8 +466,8 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
               },
               icon: AnimatedContainer(
                 duration: const Duration(milliseconds: 300),
-                width: 10,
-                height: 10,
+                width: 9,
+                height: 9,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: _isOnline ? _emerald : Colors.redAccent,
@@ -481,25 +486,35 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
                 style: TextStyle(
                   color: _isOnline ? _emeraldDark : Colors.redAccent.shade700,
                   fontWeight: FontWeight.bold,
-                  fontSize: 12,
+                  fontSize: 11,
                 ),
               ),
               style: TextButton.styleFrom(
                 backgroundColor: _isOnline ? _emerald.withOpacity(0.1) : Colors.redAccent.withOpacity(0.1),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
               ),
             ),
           ),
           IconButton(
+            icon: const Icon(Icons.screen_rotation_rounded, color: Color(0xFF0A369D)),
+            onPressed: () => OrientationService.instance.toggleOrientation(context),
+            tooltip: 'Alternar Modo Paisagem / Retrato',
+            visualDensity: VisualDensity.compact,
+          ),
+          IconButton(
             icon: const Icon(Icons.cleaning_services_outlined, color: Color(0xFF64748B)),
             onPressed: _confirmarLimpezaSimulacao,
             tooltip: 'Limpar Atendimentos (Simulação)',
+            visualDensity: VisualDensity.compact,
           ),
           IconButton(
             icon: const Icon(Icons.logout, color: Colors.grey),
             onPressed: () => _showLogoutDialog(context),
             tooltip: 'Sair da Conta',
+            visualDensity: VisualDensity.compact,
           ),
         ],
         bottom: PreferredSize(
@@ -703,8 +718,8 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
                 ),
               ),
 
-              // Banner de Instalação PWA (se acessando pelo navegador móvel)
-              if (kIsWeb)
+              // Banner de Instalação PWA (somente quando acessado pelo navegador, fora do app instalado)
+              if (kIsWeb && !isRunningStandalone())
                 Container(
                   margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -742,14 +757,18 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
                       ),
                       ElevatedButton(
                         onPressed: () {
-                          promptPwaInstallation();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Selecione "Adicionar à Tela Inicial" no menu do navegador para instalar o app.'),
-                              duration: Duration(seconds: 3),
-                              behavior: SnackBarBehavior.floating,
-                            ),
-                          );
+                          final disparouPrompt = promptPwaInstallation();
+                          if (!disparouPrompt) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'No menu do navegador (⋮), toque em "Instalar aplicativo" ou "Adicionar à tela inicial".',
+                                ),
+                                duration: Duration(seconds: 3),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          }
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.white,

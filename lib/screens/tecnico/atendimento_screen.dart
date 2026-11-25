@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../../models/ats_documentacao.dart';
 import '../../models/chamado.dart';
 import '../../services/ats_documentacao_service.dart';
+import '../../services/orientation_service.dart';
 import 'ats_form_screen.dart';
 import 'tecnico_dashboard.dart';
 
@@ -594,6 +595,11 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
           },
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.screen_rotation_rounded),
+            tooltip: 'Alternar Modo Paisagem / Retrato',
+            onPressed: () => OrientationService.instance.toggleOrientation(context),
+          ),
           if (_currentIndex == 0) // Na aba documentar
             IconButton(
               icon: _salvandoDoc

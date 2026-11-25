@@ -7,6 +7,7 @@ import 'screens/tecnico/tecnico_dashboard.dart';
 import 'screens/gerente/gerente_dashboard.dart';
 import 'screens/cliente/orcamento_client_screen.dart';
 import 'services/offline_storage_service.dart';
+import 'services/orientation_service.dart';
 import 'services/chamados_service.dart';
 import 'services/tecnicos_service.dart';
 export 'utils/url_helper.dart' show kAppBaseUrl;
@@ -115,6 +116,51 @@ class MyApp extends StatelessWidget {
         useMaterial3: true,
         fontFamily: 'Roboto',
       ),
+      builder: (context, child) {
+        if (child == null) return const SizedBox.shrink();
+        return ValueListenableBuilder<bool>(
+          valueListenable: OrientationService.instance.forcedLandscapeNotifier,
+          builder: (context, forceLandscape, _) {
+            final mq = MediaQuery.of(context);
+            final isPhysicalPortrait = mq.size.height > mq.size.width;
+            if (!forceLandscape || !isPhysicalPortrait) {
+              return child;
+            }
+            // Rotaciona 90° em sentido horário quando o WebAPK/SO mantém a janela em retrato
+            return RotatedBox(
+              quarterTurns: 1,
+              child: MediaQuery(
+                data: mq.copyWith(
+                  size: Size(mq.size.height, mq.size.width),
+                  padding: EdgeInsets.fromLTRB(
+                    mq.padding.top,
+                    mq.padding.right,
+                    mq.padding.bottom,
+                    mq.padding.left,
+                  ),
+                  viewPadding: EdgeInsets.fromLTRB(
+                    mq.viewPadding.top,
+                    mq.viewPadding.right,
+                    mq.viewPadding.bottom,
+                    mq.viewPadding.left,
+                  ),
+                  viewInsets: EdgeInsets.fromLTRB(
+                    mq.viewInsets.top,
+                    mq.viewInsets.right,
+                    mq.viewInsets.bottom,
+                    mq.viewInsets.left,
+                  ),
+                ),
+                child: SizedBox(
+                  width: mq.size.height,
+                  height: mq.size.width,
+                  child: child,
+                ),
+              ),
+            );
+          },
+        );
+      },
       // Se na inicialização web houver token, abre DIRETO o orçamento sem passar pelo AuthWrapper
       home:
           webInitialToken != null

@@ -14,6 +14,7 @@ import '../../models/tecnico.dart';
 import '../../services/ats_documentacao_service.dart';
 import '../../services/ats_pdf_service.dart';
 import '../../services/chamados_service.dart';
+import '../../services/orientation_service.dart';
 import '../../services/orcamento_pdf_service.dart';
 import '../../services/planilha_reembolso_service.dart';
 import '../../services/tecnicos_service.dart';
@@ -361,6 +362,16 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                               runSpacing: 8,
                               crossAxisAlignment: WrapCrossAlignment.center,
                               children: [
+                                if (kIsWeb || MediaQuery.of(context).size.shortestSide < 700)
+                                  IconButton(
+                                    onPressed: () => OrientationService.instance.toggleOrientation(context),
+                                    icon: const Icon(Icons.screen_rotation_rounded, color: Color(0xFF0A369D)),
+                                    tooltip: 'Alternar Modo Paisagem / Retrato',
+                                    style: IconButton.styleFrom(
+                                      backgroundColor: const Color(0xFFEFF6FF),
+                                      side: const BorderSide(color: Color(0xFFBFDBFE)),
+                                    ),
+                                  ),
                                 if (_selectedMenuIndex == 2)
                                   ElevatedButton.icon(
                                     onPressed: () => _abrirModalAdicionarTecnico(context),

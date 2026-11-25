@@ -1,7 +1,8 @@
 {
+    "id": "/?pwa=v2",
     "name": "Pmach ATS Digital",
     "short_name": "Pmach ATS",
-    "start_url": "/",
+    "start_url": "/?pwa=v2",
     "display": "standalone",
     "background_color": "#0A369D",
     "theme_color": "#0A369D",

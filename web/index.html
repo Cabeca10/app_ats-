@@ -25,7 +25,7 @@
   <link rel="icon" type="image/png" href="favicon.png"/>
 
   <title>Pmach ATS Digital</title>
-  <link rel="manifest" href="manifest.json">
+  <link rel="manifest" href="manifest.json?v=2">
 
   <style>
     body {
@@ -58,12 +58,71 @@
   </style>
 
   <script>
+    // Remove Service Workers antigos e caches do Flutter que poderiam reter versão/orientação antiga
+    (function () {
+      try {
+        if ('caches' in window) {
+          caches.keys().then(function (names) {
+            names
+              .filter(function (name) {
+                return name.indexOf('flutter-') === 0 || name.indexOf('workbox-') === 0;
+              })
+              .forEach(function (name) {
+                caches.delete(name);
+              });
+          }).catch(function () {});
+        }
+        if ('serviceWorker' in navigator) {
+          var hadController = !!navigator.serviceWorker.controller;
+          navigator.serviceWorker.getRegistrations().then(function (registrations) {
+            if (!registrations || registrations.length === 0) return;
+            Promise.all(registrations.map(function (reg) {
+              return reg.unregister();
+            })).then(function (results) {
+              var anyUnregistered = results.some(Boolean);
+              if ((hadController || anyUnregistered) && !sessionStorage.getItem('pmach_sw_cleared_v2')) {
+                sessionStorage.setItem('pmach_sw_cleared_v2', '1');
+                window.location.reload();
+              }
+            }).catch(function () {});
+          }).catch(function () {});
+        }
+      } catch (_) {}
+    })();
+
     // Libera a rotação para retrato e paisagem caso o navegador tenha bloqueio anterior
     try {
       if (window.screen && window.screen.orientation && typeof window.screen.orientation.unlock === 'function') {
         window.screen.orientation.unlock();
       }
     } catch (_) {}
+
+    // Detecta se o app está aberto já instalado como aplicativo standalone
+    window.isRunningStandalone = function() {
+      try {
+        var standaloneMatch = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
+        return Boolean(standaloneMatch || window.navigator.standalone === true);
+      } catch (_) {
+        return false;
+      }
+    };
+
+    // Solicita orientação ao navegador (quando suportado pelo contexto)
+    window.requestBrowserOrientation = function(mode) {
+      try {
+        if (!window.screen || !window.screen.orientation) return;
+        if (mode === 'any') {
+          if (typeof window.screen.orientation.unlock === 'function') {
+            window.screen.orientation.unlock();
+          }
+        } else if (typeof window.screen.orientation.lock === 'function') {
+          var lockPromise = window.screen.orientation.lock(mode);
+          if (lockPromise && typeof lockPromise.catch === 'function') {
+            lockPromise.catch(function() {});
+          }
+        }
+      } catch (_) {}
+    };
 
     // Gerenciador do evento nativo de instalação do PWA (beforeinstallprompt)
     window.pwaInstallPrompt = null;
@@ -83,13 +142,19 @@
     // Função utilitária para acionar o prompt nativo de instalação
     window.promptPwaInstallation = function() {
       if (window.pwaInstallPrompt) {
-        window.pwaInstallPrompt.prompt();
-        window.pwaInstallPrompt.userChoice.then(function(choiceResult) {
-          console.log('[PWA] Escolha do usuário:', choiceResult.outcome);
-          window.pwaInstallPrompt = null;
-        });
+        try {
+          window.pwaInstallPrompt.prompt();
+          window.pwaInstallPrompt.userChoice.then(function(choiceResult) {
+            console.log('[PWA] Escolha do usuário:', choiceResult.outcome);
+            window.pwaInstallPrompt = null;
+          });
+          return true;
+        } catch (_) {
+          return false;
+        }
       } else {
         console.log('[PWA] O prompt de instalação não está disponível no momento.');
+        return false;
       }
     };
   </script>
