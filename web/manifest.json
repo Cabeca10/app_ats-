@@ -6,7 +6,7 @@
     "background_color": "#0A369D",
     "theme_color": "#0A369D",
     "description": "Sistema PWA de Gestão e Atendimento Técnico Industrial Pmach ATS",
-    "orientation": "portrait-primary",
+    "orientation": "any",
     "prefer_related_applications": false,
     "icons": [
         {

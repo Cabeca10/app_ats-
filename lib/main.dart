@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/tecnico/tecnico_dashboard.dart';
@@ -31,6 +32,14 @@ class AppAuthState {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Permite rotação livre em retrato (vertical) e paisagem (horizontal)
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
+  ]);
 
   // 1. Inicializa o Hive para persistência offline-first
   await OfflineStorageService.instance.init();

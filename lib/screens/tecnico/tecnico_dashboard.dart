@@ -581,244 +581,235 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
 
   // PAGE 1: CHAMADOS (TICKETS LIST)
   Widget _buildChamadosPage() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Welcome technician message card
-        Container(
-          padding: const EdgeInsets.all(20),
-          margin: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF0A369D), Color(0xFF1E5BB8)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF0A369D).withOpacity(0.3),
-                blurRadius: 12,
-                offset: const Offset(0, 6),
-              ),
-            ],
-          ),
-          child: Row(
+    return RefreshIndicator(
+      onRefresh: _carregarChamadosDoTecnico,
+      color: const Color(0xFF0A369D),
+      child: ValueListenableBuilder<List<Chamado>>(
+        valueListenable: ChamadosService.instance.chamadosNotifier,
+        builder: (context, chamados, _) {
+          final user = Supabase.instance.client.auth.currentUser;
+          // Converte os chamados atribuídos a este técnico em tickets
+          final chamadosAtribuidos = chamados
+              .where((c) =>
+                  _chamadoPertenceAoTecnico(c, user) &&
+                  (c.status == ChamadoStatus.atribuido ||
+                      c.status == ChamadoStatus.emAtendimento ||
+                      c.status == ChamadoStatus.finalizado))
+              .map((c) => Ticket(
+                    id: c.numeroAts.toUpperCase().startsWith('ATS-') ? c.numeroAts : 'ATS-${c.numeroAts}',
+                    chamadoId: c.id,
+                    numeroAts: c.numeroAts,
+                    companyName: c.razaoSocial,
+                    machineModel: '${c.fabricante ?? "Pmach"} ${c.modeloMaquina ?? ""}',
+                    scheduledTime: 'Prioritário',
+                    priority: 'Alta',
+                    status: c.status == ChamadoStatus.finalizado
+                        ? 'Concluído'
+                        : (c.status == ChamadoStatus.emAtendimento ? 'Em Andamento' : 'Pendente'),
+                    address: c.endereco ?? 'Joinville / Região',
+                    defeitoRelatado: c.defeitoRelatado,
+                    orcamentoPdfUrl: c.orcamentoPdfUrl,
+                    relatorioPdfUrl: c.relatorioPdfUrl,
+                    relatorioVersao: c.relatorioVersao,
+                  ))
+              .toList();
+
+          // Evita duplicatas pelo ID, priorizando dados mais recentes em chamadosAtribuidos quando presentes
+          final ticketIds = <String>{};
+          final allTickets = <Ticket>[];
+
+          for (var t in chamadosAtribuidos) {
+            if (ticketIds.add(t.id)) allTickets.add(t);
+          }
+          for (var t in _tickets) {
+            if (ticketIds.add(t.id)) allTickets.add(t);
+          }
+
+          return ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.only(bottom: 16),
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              // Welcome technician message card
+              Container(
+                padding: const EdgeInsets.all(20),
+                margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF0A369D), Color(0xFF1E5BB8)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF0A369D).withOpacity(0.3),
+                      blurRadius: 12,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: Row(
                   children: [
-                    Text(
-                      'Olá, $_tecnicoNomeLogado!',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Olá, $_tecnicoNomeLogado!',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Você possui ${allTickets.length} chamados agendados para hoje.',
+                            style: const TextStyle(
+                              color: Color(0xFFE2E8F0),
+                              fontSize: 13,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Você possui ${_tickets.length} chamados agendados para hoje.',
-                      style: const TextStyle(
-                        color: Color(0xFFE2E8F0),
-                        fontSize: 13,
-                        height: 1.4,
+                    const SizedBox(width: 12),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.white.withOpacity(0.2),
+                      ),
+                      child: const Icon(
+                        Icons.construction,
+                        color: Colors.white,
+                        size: 28,
                       ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(width: 12),
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withOpacity(0.2),
-                ),
-                child: const Icon(
-                  Icons.construction,
-                  color: Colors.white,
-                  size: 28,
+
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
+                child: Text(
+                  'Chamados de Hoje',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF0C1A30),
+                  ),
                 ),
               ),
-            ],
-          ),
-        ),
 
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
-          child: Text(
-            'Chamados de Hoje',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF0C1A30),
-            ),
-          ),
-        ),
-
-        // Banner de Instalação PWA (se acessando pelo navegador móvel)
-        if (kIsWeb)
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF0A369D), Color(0xFF1E3A8A)],
-              ),
-              borderRadius: BorderRadius.circular(8),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF0A369D).withOpacity(0.2),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.install_mobile, color: Colors.white, size: 20),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Instalar Pmach ATS',
-                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+              // Banner de Instalação PWA (se acessando pelo navegador móvel)
+              if (kIsWeb)
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF0A369D), Color(0xFF1E3A8A)],
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF0A369D).withOpacity(0.2),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
                       ),
-                      Text(
-                        'Adicione à tela inicial para tela cheia e offline',
-                        style: TextStyle(color: Color(0xFFBFDBFE), fontSize: 10),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.install_mobile, color: Colors.white, size: 20),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Instalar Pmach ATS',
+                              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                            ),
+                            Text(
+                              'Adicione à tela inicial para tela cheia e offline',
+                              style: TextStyle(color: Color(0xFFBFDBFE), fontSize: 10),
+                            ),
+                          ],
+                        ),
+                      ),
+                      ElevatedButton(
+                        onPressed: () {
+                          promptPwaInstallation();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Selecione "Adicionar à Tela Inicial" no menu do navegador para instalar o app.'),
+                              duration: Duration(seconds: 3),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: const Color(0xFF0A369D),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+                        ),
+                        child: const Text('Instalar'),
                       ),
                     ],
                   ),
                 ),
-                ElevatedButton(
-                  onPressed: () {
-                    promptPwaInstallation();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Selecione "Adicionar à Tela Inicial" no menu do navegador para instalar o app.'),
-                        duration: Duration(seconds: 3),
-                        behavior: SnackBarBehavior.floating,
-                      ),
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: const Color(0xFF0A369D),
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+
+              // Banner informativo se estiver operando em modo Offline no chão de fábrica
+              if (!_isOnline)
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF3C7),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFFDE68A)),
                   ),
-                  child: const Text('Instalar'),
-                ),
-              ],
-            ),
-          ),
-
-        // Banner informativo se estiver operando em modo Offline no chão de fábrica
-        if (!_isOnline)
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFEF3C7),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFFDE68A)),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.wifi_off, size: 18, color: Color(0xFFD97706)),
-                SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Modo Offline: Dados locais salvos no dispositivo (Hive) disponíveis para acesso no chão de fábrica.',
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF92400E)),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-        // List of tickets integrado com ChamadosService e cache local
-        Expanded(
-          child: RefreshIndicator(
-            onRefresh: _carregarChamadosDoTecnico,
-            color: const Color(0xFF0A369D),
-            child: ValueListenableBuilder<List<Chamado>>(
-              valueListenable: ChamadosService.instance.chamadosNotifier,
-              builder: (context, chamados, _) {
-                final user = Supabase.instance.client.auth.currentUser;
-                // Converte os chamados atribuídos a este técnico em tickets
-                final chamadosAtribuidos = chamados
-                    .where((c) =>
-                        _chamadoPertenceAoTecnico(c, user) &&
-                        (c.status == ChamadoStatus.atribuido ||
-                            c.status == ChamadoStatus.emAtendimento ||
-                            c.status == ChamadoStatus.finalizado))
-                    .map((c) => Ticket(
-                          id: c.numeroAts.toUpperCase().startsWith('ATS-') ? c.numeroAts : 'ATS-${c.numeroAts}',
-                          chamadoId: c.id,
-                          numeroAts: c.numeroAts,
-                          companyName: c.razaoSocial,
-                          machineModel: '${c.fabricante ?? "Pmach"} ${c.modeloMaquina ?? ""}',
-                          scheduledTime: 'Prioritário',
-                          priority: 'Alta',
-                          status: c.status == ChamadoStatus.finalizado
-                              ? 'Concluído'
-                              : (c.status == ChamadoStatus.emAtendimento ? 'Em Andamento' : 'Pendente'),
-                          address: c.endereco ?? 'Joinville / Região',
-                          defeitoRelatado: c.defeitoRelatado,
-                          orcamentoPdfUrl: c.orcamentoPdfUrl,
-                          relatorioPdfUrl: c.relatorioPdfUrl,
-                          relatorioVersao: c.relatorioVersao,
-                        ))
-                    .toList();
-
-                // Evita duplicatas pelo ID, priorizando dados mais recentes em chamadosAtribuidos quando presentes
-                final ticketIds = <String>{};
-                final allTickets = <Ticket>[];
-
-                for (var t in chamadosAtribuidos) {
-                  if (ticketIds.add(t.id)) allTickets.add(t);
-                }
-                for (var t in _tickets) {
-                  if (ticketIds.add(t.id)) allTickets.add(t);
-                }
-
-                if (allTickets.isEmpty) {
-                  return ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    children: const [
-                      SizedBox(height: 80),
-                      Center(
+                  child: const Row(
+                    children: [
+                      Icon(Icons.wifi_off, size: 18, color: Color(0xFFD97706)),
+                      SizedBox(width: 8),
+                      Expanded(
                         child: Text(
-                          'Nenhum chamado atribuído no momento.',
-                          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                          'Modo Offline: Dados locais salvos no dispositivo (Hive) disponíveis para acesso no chão de fábrica.',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF92400E)),
                         ),
                       ),
                     ],
-                  );
-                }
+                  ),
+                ),
 
-                return ListView.builder(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  itemCount: allTickets.length,
-                  itemBuilder: (context, index) {
-                    final ticket = allTickets[index];
-                    return _buildTicketCard(ticket);
-                  },
-                );
-              },
-            ),
-          ),
-        ),
-      ],
+              if (allTickets.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 48, horizontal: 16),
+                  child: Center(
+                    child: Text(
+                      'Nenhum chamado atribuído no momento.',
+                      style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                    ),
+                  ),
+                )
+              else
+                ...allTickets.map(
+                  (ticket) => Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: _buildTicketCard(ticket),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
     );
   }
 
@@ -1287,10 +1278,11 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
           Expanded(
             child: manuals.isEmpty
                 ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 28.0),
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(horizontal: 28.0, vertical: 12.0),
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           Container(
                             padding: const EdgeInsets.all(22),

@@ -58,6 +58,13 @@
   </style>
 
   <script>
+    // Libera a rotação para retrato e paisagem caso o navegador tenha bloqueio anterior
+    try {
+      if (window.screen && window.screen.orientation && typeof window.screen.orientation.unlock === 'function') {
+        window.screen.orientation.unlock();
+      }
+    } catch (_) {}
+
     // Gerenciador do evento nativo de instalação do PWA (beforeinstallprompt)
     window.pwaInstallPrompt = null;
     window.addEventListener('beforeinstallprompt', function(event) {
