@@ -6,6 +6,7 @@ import 'package:pdf/widgets.dart' as pw;
 import '../models/chamado.dart';
 import '../models/log_horas_custos.dart';
 import '../models/dia_trabalho.dart';
+import '../models/relatorio_custos_gerente.dart';
 
 /// Serviço para geração do relatório técnico industrial (ATS) em PDF
 /// com assinatura do cliente e QR Code direcionando para o vídeo do teste.
@@ -24,6 +25,7 @@ class AtsPdfService {
     String? videoUrl,
     String? fotoUrl,
     int versao = 1,
+    RelatorioCustosGerente? custosGerente,
   }) async {
     final pdf = pw.Document();
 
@@ -41,6 +43,16 @@ class AtsPdfService {
     final signatureImage = pw.MemoryImage(assinaturaBytes);
     final dateFormat = DateFormat('dd/MM/yyyy');
     final currencyFormat = NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$');
+
+    final kmEfetivo = custosGerente?.kmRodado ?? logHoras.kmRodado;
+    final pedagioEfetivo = custosGerente?.pedagio ?? logHoras.pedagio;
+    final refeicaoEfetiva = custosGerente?.refeicao ?? logHoras.refeicao;
+    final hospedagemEfetiva = custosGerente?.hospedagem ?? logHoras.hospedagem;
+    final outrosEfetivos = custosGerente?.pecasOutros ?? logHoras.outrosCustos;
+    final totalDespesasEfetivo =
+        pedagioEfetivo + refeicaoEfetiva + hospedagemEfetiva + outrosEfetivos;
+    final mostrarColunasExtras =
+        custosGerente != null || hospedagemEfetiva > 0 || outrosEfetivos > 0;
 
     pdf.addPage(
       pw.MultiPage(
@@ -303,15 +315,21 @@ class AtsPdfService {
                           _buildTh('Km Rodado'),
                           _buildTh('Pedágio'),
                           _buildTh('Refeição'),
+                          if (mostrarColunasExtras) _buildTh('Hospedagem'),
+                          if (mostrarColunasExtras) _buildTh('Peças / Outros'),
                           _buildTh('Total Despesas Extras'),
                         ],
                       ),
                       pw.TableRow(
                         children: [
-                          _buildTd('${logHoras.kmRodado.toStringAsFixed(1)} km'),
-                          _buildTd(currencyFormat.format(logHoras.pedagio)),
-                          _buildTd(currencyFormat.format(logHoras.refeicao)),
-                          _buildTd(currencyFormat.format(logHoras.totalDespesasExtras)),
+                          _buildTd('${kmEfetivo.toStringAsFixed(1)} km'),
+                          _buildTd(currencyFormat.format(pedagioEfetivo)),
+                          _buildTd(currencyFormat.format(refeicaoEfetiva)),
+                          if (mostrarColunasExtras)
+                            _buildTd(currencyFormat.format(hospedagemEfetiva)),
+                          if (mostrarColunasExtras)
+                            _buildTd(currencyFormat.format(outrosEfetivos)),
+                          _buildTd(currencyFormat.format(totalDespesasEfetivo)),
                         ],
                       ),
                     ],
@@ -319,6 +337,14 @@ class AtsPdfService {
                 ],
               ),
             ),
+            if (custosGerente != null) ...[
+              pw.SizedBox(height: 12),
+              _buildSecaoCustosGerentePdf(
+                chamado: chamado,
+                custos: custosGerente,
+                currencyFormat: currencyFormat,
+              ),
+            ],
             pw.SizedBox(height: 12),
 
             // 4. MEMORIAL DO SERVIÇO EXECUTADO
@@ -426,6 +452,215 @@ class AtsPdfService {
     );
 
     return pdf.save();
+  }
+
+  pw.Widget _buildSecaoCustosGerentePdf({
+    required Chamado chamado,
+    required RelatorioCustosGerente custos,
+    required NumberFormat currencyFormat,
+  }) {
+    final rows = <pw.TableRow>[
+      pw.TableRow(
+        decoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFF8FAFC)),
+        children: [
+          _buildTh('Descrição do Item / Recurso'),
+          _buildTh('Qtd / Base'),
+          _buildTh('Valor Unitário'),
+          _buildTh('Subtotal'),
+        ],
+      ),
+    ];
+
+    void addItem(String desc, String qtd, String unit, double subtotal) {
+      rows.add(
+        pw.TableRow(
+          children: [
+            pw.Padding(
+              padding: const pw.EdgeInsets.all(5),
+              child: pw.Text(desc, style: const pw.TextStyle(fontSize: 7.5)),
+            ),
+            _buildTd(qtd),
+            _buildTd(unit),
+            pw.Padding(
+              padding: const pw.EdgeInsets.all(5),
+              child: pw.Text(
+                currencyFormat.format(subtotal),
+                textAlign: pw.TextAlign.right,
+                style: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (custos.horasNormais > 0) {
+      addItem(
+        'Horas Técnicas Comerciais (Seg-Sex 08h-18h)',
+        '${custos.horasNormais.toStringAsFixed(2)} h',
+        '${currencyFormat.format(custos.taxaHoraNormal)}/h',
+        custos.subtotalHorasNormais,
+      );
+    }
+    if (custos.horasExtras > 0) {
+      addItem(
+        'Horas Técnicas Extras (+50%)',
+        '${custos.horasExtras.toStringAsFixed(2)} h',
+        '${currencyFormat.format(custos.taxaHoraExtra)}/h',
+        custos.subtotalHorasExtras,
+      );
+    }
+    if (custos.horasEspeciais > 0) {
+      addItem(
+        'Horas Técnicas Especiais (+100%)',
+        '${custos.horasEspeciais.toStringAsFixed(2)} h',
+        '${currencyFormat.format(custos.taxaHoraEspecial)}/h',
+        custos.subtotalHorasEspeciais,
+      );
+    }
+    if (custos.horasViagem > 0) {
+      addItem(
+        'Horas de Deslocamento / Viagem',
+        '${custos.horasViagem.toStringAsFixed(2)} h',
+        '${currencyFormat.format(custos.taxaHoraViagem)}/h',
+        custos.subtotalHorasViagem,
+      );
+    }
+    if (custos.kmRodado > 0) {
+      addItem(
+        'Deslocamento em KM Rodado (Ida e Volta)',
+        '${custos.kmRodado.toStringAsFixed(1)} km',
+        '${currencyFormat.format(custos.taxaKm)}/km',
+        custos.subtotalKm,
+      );
+    }
+    if (custos.pedagio > 0) {
+      addItem(
+        'Despesa com Pedágio',
+        '1 un',
+        currencyFormat.format(custos.pedagio),
+        custos.pedagio,
+      );
+    }
+    if (custos.refeicao > 0) {
+      addItem(
+        'Despesa com Alimentação / Refeição',
+        '1 un',
+        currencyFormat.format(custos.refeicao),
+        custos.refeicao,
+      );
+    }
+    if (custos.hospedagem > 0) {
+      addItem(
+        'Despesa com Hospedagem / Estadia',
+        '1 un',
+        currencyFormat.format(custos.hospedagem),
+        custos.hospedagem,
+      );
+    }
+    if (custos.pecasOutros > 0) {
+      addItem(
+        'Peças / Materiais / Outros Custos',
+        '1 un',
+        currencyFormat.format(custos.pecasOutros),
+        custos.pecasOutros,
+      );
+    }
+
+    if (rows.length == 1) {
+      addItem(
+        'Atendimento Técnico Concluído (Sem custos adicionais lançados)',
+        '-',
+        currencyFormat.format(0),
+        0.0,
+      );
+    }
+
+    final isGarantia = chamado.tipoAtendimento.toUpperCase() == 'GARANTIA';
+
+    return pw.Container(
+      decoration: pw.BoxDecoration(
+        border: pw.Border.all(color: PdfColor.fromInt(0xFF0A369D), width: 0.8),
+        borderRadius: pw.BorderRadius.circular(6),
+      ),
+      padding: const pw.EdgeInsets.all(10),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text(
+                'DEMONSTRATIVO DE CUSTOS E COBRANÇA DO ATENDIMENTO',
+                style: pw.TextStyle(
+                  fontSize: 9,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColor.fromInt(0xFF0A369D),
+                ),
+              ),
+              pw.Container(
+                padding: const pw.EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: pw.BoxDecoration(
+                  color: PdfColor.fromInt(0xFFDCFCE7),
+                  borderRadius: pw.BorderRadius.circular(4),
+                ),
+                child: pw.Text(
+                  'CONFERIDO P/ FATURAMENTO',
+                  style: pw.TextStyle(
+                    fontSize: 6.5,
+                    fontWeight: pw.FontWeight.bold,
+                    color: PdfColor.fromInt(0xFF15803D),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          pw.SizedBox(height: 6),
+          pw.Table(
+            border: pw.TableBorder.all(color: PdfColor.fromInt(0xFFCBD5E1), width: 0.5),
+            children: rows,
+          ),
+          if (custos.observacoes != null && custos.observacoes!.trim().isNotEmpty) ...[
+            pw.SizedBox(height: 6),
+            pw.Text(
+              'Observações Financeiras: ${custos.observacoes!.trim()}',
+              style: const pw.TextStyle(fontSize: 7.5, color: PdfColors.grey800),
+            ),
+          ],
+          pw.SizedBox(height: 8),
+          pw.Container(
+            padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: pw.BoxDecoration(
+              color: PdfColor.fromInt(0xFF0A369D),
+              borderRadius: pw.BorderRadius.circular(4),
+            ),
+            child: pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text(
+                  isGarantia
+                      ? 'CUSTO TOTAL APURADO (ATENDIMENTO GARANTIA)'
+                      : 'CUSTO TOTAL DO ATENDIMENTO PARA COBRANÇA',
+                  style: pw.TextStyle(
+                    fontSize: 8.5,
+                    fontWeight: pw.FontWeight.bold,
+                    color: PdfColors.white,
+                  ),
+                ),
+                pw.Text(
+                  currencyFormat.format(custos.custoTotalGerado),
+                  style: pw.TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: pw.FontWeight.bold,
+                    color: PdfColors.white,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   pw.Widget _buildTh(String title) {

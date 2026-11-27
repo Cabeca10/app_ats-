@@ -10,6 +10,7 @@ import '../../models/chamado.dart';
 import '../../models/dia_trabalho.dart';
 import '../../models/log_horas_custos.dart';
 import '../../models/planilha_reembolso.dart';
+import '../../models/relatorio_custos_gerente.dart';
 import '../../models/tecnico.dart';
 import '../../services/ats_documentacao_service.dart';
 import '../../services/ats_pdf_service.dart';
@@ -873,40 +874,7 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                                       ],
                                     ),
                                   ),
-                                  DataCell(
-                                    temRelatorioFinal
-                                        ? OutlinedButton.icon(
-                                            onPressed: _abrindoRelatorioChamadoId == c.id
-                                                ? null
-                                                : () => _abrirRelatorioFinalizado(c),
-                                            icon: _abrindoRelatorioChamadoId == c.id
-                                                ? const SizedBox(
-                                                    width: 14,
-                                                    height: 14,
-                                                    child: CircularProgressIndicator(
-                                                      strokeWidth: 2,
-                                                      color: Color(0xFF15803D),
-                                                    ),
-                                                  )
-                                                : const Icon(Icons.picture_as_pdf_rounded, size: 15),
-                                            label: Text(
-                                              _abrindoRelatorioChamadoId == c.id
-                                                  ? 'Abrindo...'
-                                                  : 'Finalizado v$versaoRelatorio',
-                                            ),
-                                            style: OutlinedButton.styleFrom(
-                                              foregroundColor: const Color(0xFF15803D),
-                                              backgroundColor: const Color(0xFFF0FDF4),
-                                              side: const BorderSide(color: Color(0xFF86EFAC)),
-                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                              textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-                                            ),
-                                          )
-                                        : const Text(
-                                            'Aguardando',
-                                            style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
-                                          ),
-                                  ),
+                                  DataCell(_buildBotaoRelatorioFinalizado(c, temRelatorioFinal, versaoRelatorio)),
                                   DataCell(
                                     temPdfAprovado
                                         ? OutlinedButton.icon(
@@ -1250,40 +1218,7 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                                       ),
                                     ),
                                   ),
-                                  DataCell(
-                                    temRelatorioFinal
-                                        ? OutlinedButton.icon(
-                                            onPressed: _abrindoRelatorioChamadoId == c.id
-                                                ? null
-                                                : () => _abrirRelatorioFinalizado(c),
-                                            icon: _abrindoRelatorioChamadoId == c.id
-                                                ? const SizedBox(
-                                                    width: 14,
-                                                    height: 14,
-                                                    child: CircularProgressIndicator(
-                                                      strokeWidth: 2,
-                                                      color: Color(0xFF15803D),
-                                                    ),
-                                                  )
-                                                : const Icon(Icons.picture_as_pdf_rounded, size: 15),
-                                            label: Text(
-                                              _abrindoRelatorioChamadoId == c.id
-                                                  ? 'Abrindo...'
-                                                  : 'Finalizado v$versaoRelatorio',
-                                            ),
-                                            style: OutlinedButton.styleFrom(
-                                              foregroundColor: const Color(0xFF15803D),
-                                              backgroundColor: const Color(0xFFF0FDF4),
-                                              side: const BorderSide(color: Color(0xFF86EFAC)),
-                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                              textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-                                            ),
-                                          )
-                                        : const Text(
-                                            'Aguardando',
-                                            style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
-                                          ),
-                                  ),
+                                  DataCell(_buildBotaoRelatorioFinalizado(c, temRelatorioFinal, versaoRelatorio)),
                                 ],
                               );
                             }).toList(),
@@ -1295,6 +1230,59 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildBotaoRelatorioFinalizado(Chamado c, bool temRelatorioFinal, int versaoRelatorio) {
+    if (!temRelatorioFinal) {
+      return const Text(
+        'Aguardando',
+        style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+      );
+    }
+
+    final enviadoGerente = c.relatorioGerenteEnviado;
+    final Color fg = enviadoGerente ? const Color(0xFF15803D) : const Color(0xFFC2410C);
+    final Color bg = enviadoGerente ? const Color(0xFFF0FDF4) : const Color(0xFFFFF7ED);
+    final Color border = enviadoGerente ? const Color(0xFF86EFAC) : const Color(0xFFFDBA74);
+    final String valorSuffix = (enviadoGerente && c.custoTotalGerado > 0)
+        ? ' • ${NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$').format(c.custoTotalGerado)}'
+        : '';
+
+    return Tooltip(
+      message: enviadoGerente
+          ? 'Relatório p/ Gerente recebido — Pronto para cobrar o cliente'
+          : 'Aguardando técnico enviar Relatório p/ Gerente (KM e custos finais)',
+      child: OutlinedButton.icon(
+        onPressed: _abrindoRelatorioChamadoId == c.id
+            ? null
+            : () => _abrirRelatorioFinalizado(c),
+        icon: _abrindoRelatorioChamadoId == c.id
+            ? SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: fg,
+                ),
+              )
+            : Icon(
+                enviadoGerente ? Icons.picture_as_pdf_rounded : Icons.schedule_rounded,
+                size: 15,
+              ),
+        label: Text(
+          _abrindoRelatorioChamadoId == c.id
+              ? 'Abrindo...'
+              : 'Finalizado v$versaoRelatorio$valorSuffix',
+        ),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: fg,
+          backgroundColor: bg,
+          side: BorderSide(color: border, width: 1.3),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+        ),
+      ),
     );
   }
 
@@ -1519,7 +1507,7 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
           } catch (_) {}
         }
 
-        final logHoras = LogHorasCustos(
+        LogHorasCustos logHoras = LogHorasCustos(
           id: 'log-${DateTime.now().millisecondsSinceEpoch}',
           idChamado: chamado.id,
           data: dias.isNotEmpty ? dias.first.data : DateTime.now(),
@@ -1527,6 +1515,25 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
           horaFim: dias.isNotEmpty ? (dias.first.horaFim ?? '17:00') : '17:00',
           kmRodado: chamado.kmEstimado ?? 0.0,
         );
+        if (chamado.id.isNotEmpty && !chamado.id.startsWith('chamado-')) {
+          try {
+            final logRes = await client
+                .from('log_horas_custos')
+                .select()
+                .eq('id_chamado', chamado.id)
+                .order('updated_at', ascending: false)
+                .limit(1)
+                .maybeSingle();
+            if (logRes != null) {
+              logHoras = LogHorasCustos.fromJson(Map<String, dynamic>.from(logRes));
+            }
+          } catch (_) {}
+        }
+
+        final custosParaPdf =
+            (chamado.relatorioGerenteEnviado && chamado.relatorioCustosJson != null)
+                ? RelatorioCustosGerente.fromMap(chamado.relatorioCustosJson!)
+                : null;
 
         pdfBytes = await AtsPdfService.instance.gerarRelatorioAtsPdf(
           chamado: chamado,
@@ -1541,6 +1548,7 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
               : (chamado.contato ?? 'Cliente Responsável'),
           videoUrl: chamado.videoUrl,
           versao: versao,
+          custosGerente: custosParaPdf,
         );
       }
 
@@ -3201,19 +3209,75 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
   // GERAÇÃO DE PDF E DISPARO DE E-MAIL VIA SUPABASE EDGE FUNCTIONS
   // ============================================================================
   Future<void> _gerarPdfEEnviarCliente(Chamado chamado) async {
+    if (!chamado.relatorioGerenteEnviado) {
+      final prosseguir = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          title: const Row(
+            children: [
+              Icon(Icons.schedule_rounded, color: Color(0xFFEA580C), size: 26),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Custos Finais Pendentes (Laranja)',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: const Text(
+            'O técnico ainda não enviou o "Relatório p/ Gerente" com o fechamento de KM e custos finais deste atendimento.\n\n'
+            'Quando o técnico enviar, a barra "Relatório Finalizado" ficará Verde com o valor total.\n\n'
+            'Deseja aguardar o técnico ou gerar/enviar para o cliente mesmo assim?',
+            style: TextStyle(fontSize: 13, height: 1.4, color: Color(0xFF334155)),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Aguardar Técnico'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFEA580C),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Enviar Mesmo Assim'),
+            ),
+          ],
+        ),
+      );
+      if (prosseguir != true) return;
+    }
+
     setState(() => _enviandoEmailChamadoId = chamado.id);
 
     try {
       final client = Supabase.instance.client;
+      Chamado chamadoAtual = chamado;
 
-      // 1. Busca os dias de trabalho caso não estejam em memória
-      List<DiaTrabalho> dias = chamado.diasTrabalho;
-      if (dias.isEmpty && chamado.id.isNotEmpty && !chamado.id.startsWith('chamado-')) {
+      if (chamado.id.isNotEmpty && !chamado.id.startsWith('chamado-')) {
+        try {
+          final freshRow = await client
+              .from('chamados')
+              .select(Chamado.selectColumnsCompletas)
+              .eq('id', chamado.id)
+              .maybeSingle();
+          if (freshRow != null) {
+            chamadoAtual = Chamado.fromMap(Map<String, dynamic>.from(freshRow));
+          }
+        } catch (_) {}
+      }
+
+      // 1. Busca os dias de trabalho atualizados
+      List<DiaTrabalho> dias = chamadoAtual.diasTrabalho;
+      if (chamadoAtual.id.isNotEmpty && !chamadoAtual.id.startsWith('chamado-')) {
         try {
           final diasRes = await client
               .from('ats_dias_trabalho')
               .select()
-              .eq('chamado_id', chamado.id)
+              .eq('chamado_id', chamadoAtual.id)
               .order('data', ascending: true);
           if (diasRes.isNotEmpty) {
             dias = (diasRes as List)
@@ -3235,53 +3299,74 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
         }
       }
 
-      // 2. Prepara modelo de horas/custos
-      final logHoras = LogHorasCustos(
+      // 2. Busca log_horas_custos real com KM, pedágio, refeição, hospedagem e peças
+      LogHorasCustos logHoras = LogHorasCustos(
         id: 'log-${DateTime.now().millisecondsSinceEpoch}',
-        idChamado: chamado.id,
+        idChamado: chamadoAtual.id,
         data: dias.isNotEmpty ? dias.first.data : DateTime.now(),
         horaInicio: dias.isNotEmpty ? dias.first.horaInicio : '08:00',
         horaFim: dias.isNotEmpty ? (dias.first.horaFim ?? '17:00') : '17:00',
-        kmRodado: chamado.kmEstimado ?? 0.0,
+        kmRodado: chamadoAtual.kmEstimado ?? 0.0,
       );
+      if (chamadoAtual.id.isNotEmpty && !chamadoAtual.id.startsWith('chamado-')) {
+        try {
+          final logRes = await client
+              .from('log_horas_custos')
+              .select()
+              .eq('id_chamado', chamadoAtual.id)
+              .order('updated_at', ascending: false)
+              .limit(1)
+              .maybeSingle();
+          if (logRes != null) {
+            logHoras = LogHorasCustos.fromJson(Map<String, dynamic>.from(logRes));
+          }
+        } catch (_) {}
+      }
+
+      final RelatorioCustosGerente? custosParaPdf =
+          (chamadoAtual.relatorioGerenteEnviado && chamadoAtual.relatorioCustosJson != null)
+              ? RelatorioCustosGerente.fromMap(chamadoAtual.relatorioCustosJson!)
+              : null;
 
       // 3. Obtém assinatura (ou fallback transparente)
-      final assinaturaBytes = await _obterAssinaturaBytes(chamado.assinaturaUrl);
+      final assinaturaBytes = await _obterAssinaturaBytes(chamadoAtual.assinaturaUrl);
 
-      // 4. Gera o PDF oficial da ATS na versão atual
-      final versao = chamado.relatorioVersao > 0 ? chamado.relatorioVersao : 1;
+      // 4. Gera o PDF oficial da ATS com os custos completos
+      final versao = chamadoAtual.relatorioVersao > 0 ? chamadoAtual.relatorioVersao : 1;
       final pdfBytes = await AtsPdfService.instance.gerarRelatorioAtsPdf(
-        chamado: chamado,
+        chamado: chamadoAtual,
         logHoras: logHoras,
         diasTrabalho: dias,
-        servicoExecutado: (chamado.servicoExecutado != null && chamado.servicoExecutado!.trim().isNotEmpty)
-            ? chamado.servicoExecutado!.trim()
+        servicoExecutado: (chamadoAtual.servicoExecutado != null && chamadoAtual.servicoExecutado!.trim().isNotEmpty)
+            ? chamadoAtual.servicoExecutado!.trim()
             : 'Atendimento e revisão técnica industrial concluídos.',
         assinaturaBytes: assinaturaBytes,
-        responsavelNome: (chamado.responsavelAceiteNome != null && chamado.responsavelAceiteNome!.trim().isNotEmpty)
-            ? chamado.responsavelAceiteNome!.trim()
-            : (chamado.contato ?? 'Cliente Responsável'),
-        videoUrl: chamado.videoUrl,
+        responsavelNome: (chamadoAtual.responsavelAceiteNome != null && chamadoAtual.responsavelAceiteNome!.trim().isNotEmpty)
+            ? chamadoAtual.responsavelAceiteNome!.trim()
+            : (chamadoAtual.contato ?? 'Cliente Responsável'),
+        videoUrl: chamadoAtual.videoUrl,
         versao: versao,
+        custosGerente: custosParaPdf,
       );
 
       // 5. Upload do PDF (v$versao) para o Supabase Storage
-      final cleanAts = chamado.numeroAts.replaceAll('ATS-', '').trim();
+      final cleanAts = chamadoAtual.numeroAts.replaceAll('ATS-', '').trim();
       final pdfPath = 'relatorios_ats/ats_${cleanAts}_v$versao.pdf';
+      final ts = DateTime.now().millisecondsSinceEpoch;
       await client.storage.from('orcamentos').uploadBinary(
             pdfPath,
             pdfBytes,
             fileOptions: const FileOptions(contentType: 'application/pdf', upsert: true),
           );
-      final pdfUrl = client.storage.from('orcamentos').getPublicUrl(pdfPath);
+      final pdfUrl = '${client.storage.from('orcamentos').getPublicUrl(pdfPath)}?t=$ts';
 
       // 6. UPDATE na tabela chamados atualizando relatorio_pdf_url (preserva orcamento_pdf_url)
-      if (chamado.id.isNotEmpty && !chamado.id.startsWith('chamado-')) {
+      if (chamadoAtual.id.isNotEmpty && !chamadoAtual.id.startsWith('chamado-')) {
         await client.from('chamados').update({
           'relatorio_pdf_url': pdfUrl,
           'relatorio_versao': versao,
           'updated_at': DateTime.now().toIso8601String(),
-        }).eq('id', chamado.id);
+        }).eq('id', chamadoAtual.id);
       } else {
         await client.from('chamados').update({
           'relatorio_pdf_url': pdfUrl,
@@ -3292,14 +3377,14 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
 
       // Atualiza o chamado no cache reativo local
       await ChamadosService.instance.atualizarChamado(
-        chamado.copyWith(relatorioPdfUrl: pdfUrl, relatorioVersao: versao),
+        chamadoAtual.copyWith(relatorioPdfUrl: pdfUrl, relatorioVersao: versao),
       );
 
       // 7. Invoca a Supabase Edge Function send-ats-pdf
       final response = await client.functions.invoke(
         'send-ats-pdf',
         body: {
-          'chamado_id': chamado.id,
+          'chamado_id': chamadoAtual.id,
           'pdf_url': pdfUrl,
         },
       );

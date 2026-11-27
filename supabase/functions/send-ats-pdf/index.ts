@@ -66,7 +66,7 @@ serve(async (req: Request) => {
     // 1. Busca os dados do chamado na tabela chamados
     const { data: chamado, error: chamadoError } = await supabase
       .from("chamados")
-      .select("id, numero_ats, razao_social, email_cliente, cliente_email, orcamento_pdf_url, servico_executado, modelo_maquina")
+      .select("id, numero_ats, razao_social, email_cliente, cliente_email, orcamento_pdf_url, relatorio_pdf_url, relatorio_versao, relatorio_gerente_enviado, custo_total_gerado, tipo_atendimento, servico_executado, modelo_maquina")
       .eq("id", chamadoId)
       .maybeSingle();
 
@@ -90,7 +90,14 @@ serve(async (req: Request) => {
 
     const numeroAts = chamado.numero_ats || chamadoId;
     const razaoSocial = chamado.razao_social || "Cliente Pmach";
-    const finalPdfUrl = directPdfUrl || chamado.orcamento_pdf_url;
+    const versao = chamado.relatorio_versao && Number(chamado.relatorio_versao) > 0
+      ? Number(chamado.relatorio_versao)
+      : 1;
+    const custoTotalNum = Number(chamado.custo_total_gerado || 0);
+    const custoFormatado = custoTotalNum > 0
+      ? custoTotalNum.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+      : null;
+    const finalPdfUrl = directPdfUrl || chamado.relatorio_pdf_url || chamado.orcamento_pdf_url;
 
     // 2. Baixar o arquivo PDF para anexar no e-mail (se houver URL pública/storage)
     let pdfBase64: string | null = null;
@@ -114,7 +121,7 @@ serve(async (req: Request) => {
     }
 
     // 3. Montagem do corpo do e-mail em HTML profissional
-    const emailSubject = `Relatório de Atendimento ATS Nº ${numeroAts} - V1`;
+    const emailSubject = `Relatório de Atendimento ATS Nº ${numeroAts} - V${versao}`;
 
     const emailHtmlBody = `
       <!DOCTYPE html>
@@ -151,8 +158,9 @@ serve(async (req: Request) => {
               <strong>Resumo do Chamado:</strong><br>
               • <strong>Número ATS:</strong> Nº ${numeroAts}<br>
               • <strong>Equipamento:</strong> ${chamado.modelo_maquina || "Máquina Conforme Atendimento"}<br>
-              • <strong>Versão do Relatório:</strong> V1 (Homologada)<br>
+              • <strong>Versão do Relatório:</strong> V${versao} (Homologada)<br>
               • <strong>Serviço Executado:</strong> ${chamado.servico_executado || "Conforme discriminação em anexo"}<br>
+              ${custoFormatado ? `• <strong>Valor Total para Faturamento:</strong> ${custoFormatado}<br>` : ""}
             </div>
 
             ${
@@ -168,7 +176,7 @@ serve(async (req: Request) => {
             }
 
             <p style="font-size: 13px; color: #64748b;">
-              O relatório técnico oficial contendo o apontamento de horas, equipe técnica alocada e assinatura digitalizada segue em anexo a esta mensagem para arquivamento corporativo.
+              O relatório técnico oficial contendo o apontamento de horas, custos de deslocamento/despesas e assinatura digitalizada segue em anexo a esta mensagem para conferência e faturamento.
             </p>
           </div>
           <div class="footer">
@@ -196,7 +204,7 @@ serve(async (req: Request) => {
       if (pdfBase64) {
         emailPayload.attachments = [
           {
-            filename: `Relatorio_ATS_${numeroAts}_V1.pdf`,
+            filename: `Relatorio_ATS_${numeroAts}_V${versao}.pdf`,
             content: pdfBase64,
           },
         ];

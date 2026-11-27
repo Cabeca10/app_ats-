@@ -36,11 +36,11 @@ class ChamadoStatus {
 class Chamado {
   /// Projeção mínima para listagens leves (redução estrita de tráfego AppSec)
   static const String selectColumnsMinimas = 
-      'id, numero_ats, razao_social, status, token_url, modelo_maquina, fabricante, numero_serie, defeito_relatado, endereco, telefone, orcamento_pdf_url, relatorio_pdf_url, relatorio_versao, created_at';
+      'id, numero_ats, razao_social, status, token_url, modelo_maquina, fabricante, numero_serie, defeito_relatado, endereco, telefone, orcamento_pdf_url, relatorio_pdf_url, relatorio_versao, relatorio_gerente_enviado, relatorio_gerente_data, custo_total_gerado, relatorio_custos_json, created_at';
 
   /// Projeção completa para detalhes do chamado
   static const String selectColumnsCompletas = 
-      'id, numero_ats, razao_social, cnpj, inscricao_estadual, telefone, cliente_email, email_cliente, endereco, cidade, contato, tipo_atendimento, fabricante, modelo_maquina, numero_serie, defeito_relatado, servico_executado, token_url, status, taxa_horaria_comercial, taxa_horaria_extra, taxa_horaria_especial, taxa_km, km_estimado, hora_viagem_estimada, valor_estimado_total, termos_aceitos, aceite_data, responsavel_aceite_nome, responsavel_aceite_cargo, assinatura_url, orcamento_pdf_url, relatorio_pdf_url, relatorio_versao, tecnico_id, tecnico_nome, tecnico2_id, tecnico2_nome, created_at, updated_at';
+      'id, numero_ats, razao_social, cnpj, inscricao_estadual, telefone, cliente_email, email_cliente, endereco, cidade, contato, tipo_atendimento, fabricante, modelo_maquina, numero_serie, defeito_relatado, servico_executado, token_url, status, taxa_horaria_comercial, taxa_horaria_extra, taxa_horaria_especial, taxa_km, km_estimado, hora_viagem_estimada, valor_estimado_total, termos_aceitos, aceite_data, responsavel_aceite_nome, responsavel_aceite_cargo, assinatura_url, orcamento_pdf_url, relatorio_pdf_url, relatorio_versao, relatorio_gerente_enviado, relatorio_gerente_data, custo_total_gerado, relatorio_custos_json, tecnico_id, tecnico_nome, tecnico2_id, tecnico2_nome, created_at, updated_at';
 
   final String id;
   final String numeroAts;
@@ -91,6 +91,12 @@ class Chamado {
   String? get pdfUrl => orcamentoPdfUrl;
   final String? relatorioPdfUrl;
   final int relatorioVersao;
+
+  // Fechamento financeiro enviado pelo técnico ao gerente ("Relatório p/ Gerente")
+  final bool relatorioGerenteEnviado;
+  final DateTime? relatorioGerenteData;
+  final double custoTotalGerado;
+  final Map<String, dynamic>? relatorioCustosJson;
 
   // Mídia adicional e sincronização offline-first
   final String? videoUrl;
@@ -149,6 +155,10 @@ class Chamado {
     this.orcamentoPdfUrl,
     this.relatorioPdfUrl,
     this.relatorioVersao = 0,
+    this.relatorioGerenteEnviado = false,
+    this.relatorioGerenteData,
+    this.custoTotalGerado = 0.0,
+    this.relatorioCustosJson,
     this.videoUrl,
     this.pendingSync = false,
     this.tecnicoId,
@@ -203,6 +213,10 @@ class Chamado {
     String? orcamentoPdfUrl,
     String? relatorioPdfUrl,
     int? relatorioVersao,
+    bool? relatorioGerenteEnviado,
+    DateTime? relatorioGerenteData,
+    double? custoTotalGerado,
+    Map<String, dynamic>? relatorioCustosJson,
     String? videoUrl,
     bool? pendingSync,
     String? tecnicoId,
@@ -250,6 +264,10 @@ class Chamado {
       orcamentoPdfUrl: orcamentoPdfUrl ?? this.orcamentoPdfUrl,
       relatorioPdfUrl: relatorioPdfUrl ?? this.relatorioPdfUrl,
       relatorioVersao: relatorioVersao ?? this.relatorioVersao,
+      relatorioGerenteEnviado: relatorioGerenteEnviado ?? this.relatorioGerenteEnviado,
+      relatorioGerenteData: relatorioGerenteData ?? this.relatorioGerenteData,
+      custoTotalGerado: custoTotalGerado ?? this.custoTotalGerado,
+      relatorioCustosJson: relatorioCustosJson ?? this.relatorioCustosJson,
       videoUrl: videoUrl ?? this.videoUrl,
       pendingSync: pendingSync ?? this.pendingSync,
       tecnicoId: tecnicoId ?? this.tecnicoId,
@@ -302,6 +320,10 @@ class Chamado {
       'pdf_url': orcamentoPdfUrl,
       'relatorio_pdf_url': relatorioPdfUrl,
       'relatorio_versao': relatorioVersao,
+      'relatorio_gerente_enviado': relatorioGerenteEnviado,
+      'relatorio_gerente_data': relatorioGerenteData?.toIso8601String(),
+      'custo_total_gerado': custoTotalGerado,
+      'relatorio_custos_json': relatorioCustosJson,
       'video_url': videoUrl,
       'pending_sync': pendingSync,
       'tecnico_id': tecnicoId,
@@ -355,6 +377,10 @@ class Chamado {
       'pdf_url': orcamentoPdfUrl,
       'relatorio_pdf_url': relatorioPdfUrl,
       'relatorio_versao': relatorioVersao,
+      'relatorio_gerente_enviado': relatorioGerenteEnviado,
+      'relatorio_gerente_data': relatorioGerenteData?.toIso8601String(),
+      'custo_total_gerado': custoTotalGerado,
+      'relatorio_custos_json': relatorioCustosJson,
       'tecnico_id': tecnicoId,
       'tecnico_nome': tecnicoNome,
       'tecnico2_id': tecnico2Id,
@@ -401,6 +427,17 @@ class Chamado {
       orcamentoPdfUrl: (map['orcamento_pdf_url'] ?? map['pdf_url'])?.toString(),
       relatorioPdfUrl: map['relatorio_pdf_url']?.toString(),
       relatorioVersao: (map['relatorio_versao'] as num?)?.toInt() ?? 0,
+      relatorioGerenteEnviado: map['relatorio_gerente_enviado'] == true,
+      relatorioGerenteData: map['relatorio_gerente_data'] != null
+          ? DateTime.tryParse(map['relatorio_gerente_data'].toString())
+          : null,
+      custoTotalGerado: (map['custo_total_gerado'] as num?)?.toDouble() ?? 0.0,
+      relatorioCustosJson: map['relatorio_custos_json'] is Map
+          ? Map<String, dynamic>.from(map['relatorio_custos_json'] as Map)
+          : (map['relatorio_custos_json'] is String &&
+                  map['relatorio_custos_json'].toString().trim().isNotEmpty
+              ? Map<String, dynamic>.from(json.decode(map['relatorio_custos_json'].toString()) as Map)
+              : null),
       videoUrl: map['video_url']?.toString(),
       pendingSync: map['pending_sync'] == true,
       tecnicoId: map['tecnico_id']?.toString(),

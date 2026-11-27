@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -9,6 +10,7 @@ import 'atendimento_screen.dart';
 import '../../models/chamado.dart';
 import '../../models/dia_trabalho.dart';
 import '../../models/log_horas_custos.dart';
+import '../../models/relatorio_custos_gerente.dart';
 import '../../services/ats_pdf_service.dart';
 import '../../services/chamados_service.dart';
 import '../../services/offline_storage_service.dart';
@@ -16,6 +18,7 @@ import '../../services/orientation_service.dart';
 import '../../services/orcamento_pdf_service.dart';
 import '../../services/pwa_helper.dart';
 import '../../widgets/planilha_reembolso_widget.dart';
+import '../../widgets/relatorio_gerente_dialog.dart';
 import 'package:uuid/uuid.dart';
 
 const Color _emerald = Color(0xFF10B981);
@@ -35,6 +38,8 @@ class Ticket {
   final String? orcamentoPdfUrl;
   final String? relatorioPdfUrl;
   final int relatorioVersao;
+  final bool relatorioGerenteEnviado;
+  final double custoTotalGerado;
 
   Ticket({
     required this.id,
@@ -50,6 +55,8 @@ class Ticket {
     this.orcamentoPdfUrl,
     this.relatorioPdfUrl,
     this.relatorioVersao = 0,
+    this.relatorioGerenteEnviado = false,
+    this.custoTotalGerado = 0.0,
   });
 }
 
@@ -227,6 +234,8 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
             orcamentoPdfUrl: (row['orcamento_pdf_url'] ?? row['pdf_url'])?.toString(),
             relatorioPdfUrl: row['relatorio_pdf_url']?.toString(),
             relatorioVersao: (row['relatorio_versao'] as num?)?.toInt() ?? 0,
+            relatorioGerenteEnviado: row['relatorio_gerente_enviado'] == true,
+            custoTotalGerado: (row['custo_total_gerado'] as num?)?.toDouble() ?? 0.0,
           );
         }).toList();
 
@@ -289,6 +298,8 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
           orcamentoPdfUrl: (row['orcamento_pdf_url'] ?? row['pdf_url'])?.toString(),
           relatorioPdfUrl: row['relatorio_pdf_url']?.toString(),
           relatorioVersao: (row['relatorio_versao'] as num?)?.toInt() ?? 0,
+          relatorioGerenteEnviado: row['relatorio_gerente_enviado'] == true,
+          custoTotalGerado: (row['custo_total_gerado'] as num?)?.toDouble() ?? 0.0,
         );
       }).toList();
 
@@ -317,6 +328,8 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
             orcamentoPdfUrl: c.orcamentoPdfUrl,
             relatorioPdfUrl: c.relatorioPdfUrl,
             relatorioVersao: c.relatorioVersao,
+            relatorioGerenteEnviado: c.relatorioGerenteEnviado,
+            custoTotalGerado: c.custoTotalGerado,
           );
         }).toList();
 
@@ -626,6 +639,8 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
                     orcamentoPdfUrl: c.orcamentoPdfUrl,
                     relatorioPdfUrl: c.relatorioPdfUrl,
                     relatorioVersao: c.relatorioVersao,
+                    relatorioGerenteEnviado: c.relatorioGerenteEnviado,
+                    custoTotalGerado: c.custoTotalGerado,
                   ))
               .toList();
 
@@ -881,6 +896,8 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
             orcamentoPdfUrl: atualizado?.orcamentoPdfUrl ?? old.orcamentoPdfUrl,
             relatorioPdfUrl: atualizado?.relatorioPdfUrl ?? old.relatorioPdfUrl,
             relatorioVersao: atualizado?.relatorioVersao ?? old.relatorioVersao,
+            relatorioGerenteEnviado: atualizado?.relatorioGerenteEnviado ?? old.relatorioGerenteEnviado,
+            custoTotalGerado: atualizado?.custoTotalGerado ?? old.custoTotalGerado,
           );
         }
       });
@@ -918,8 +935,8 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
           ],
         ),
         content: Text(
-          'Você poderá ajustar as informações do relatório técnico e coletar uma nova assinatura do cliente para aprovar a revisão.\n\n'
-          'Ao concluir, o relatório será salvo como Finalizado v$proximaVersao e a versão anterior (Finalizado v$versaoAtual) será apagada automaticamente.',
+          'Você poderá ajustar as informações do relatório técnico e gerar a revisão v$proximaVersao.\n\n'
+          'A assinatura do cliente já coletada é mantida automaticamente (você só precisa assinar novamente se desejar alterá-la). Ao concluir, a versão Finalizado v$proximaVersao substituirá a versão anterior (Finalizado v$versaoAtual).',
           style: const TextStyle(fontSize: 13, height: 1.4, color: Color(0xFF334155)),
         ),
         actions: [
@@ -942,6 +959,43 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
 
     if (confirmar == true && mounted) {
       await _abrirAtendimento(ticket, isRevisao: true);
+    }
+  }
+
+  Future<void> _abrirRelatorioGerente(Ticket ticket) async {
+    Chamado? chamado;
+    if (ticket.chamadoId != null && ticket.chamadoId!.isNotEmpty) {
+      chamado = ChamadosService.instance.obterChamadoPorId(ticket.chamadoId!);
+    }
+    if (chamado == null && ticket.numeroAts != null && ticket.numeroAts!.isNotEmpty) {
+      chamado = ChamadosService.instance.obterChamadoPorNumeroAts(ticket.numeroAts!);
+    }
+
+    chamado ??= Chamado(
+      id: ticket.chamadoId ?? ticket.id,
+      numeroAts: ticket.numeroAts ?? ticket.id.replaceAll('ATS-', ''),
+      razaoSocial: ticket.companyName,
+      modeloMaquina: ticket.machineModel,
+      endereco: ticket.address,
+      defeitoRelatado: ticket.defeitoRelatado,
+      orcamentoPdfUrl: ticket.orcamentoPdfUrl,
+      relatorioPdfUrl: ticket.relatorioPdfUrl,
+      relatorioVersao: ticket.relatorioVersao > 0 ? ticket.relatorioVersao : 1,
+      relatorioGerenteEnviado: ticket.relatorioGerenteEnviado,
+      custoTotalGerado: ticket.custoTotalGerado,
+      tokenUrl: const Uuid().v4(),
+      status: ChamadoStatus.finalizado,
+    );
+
+    final enviado = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => RelatorioGerenteDialog(chamado: chamado!),
+    );
+
+    if (enviado == true && mounted) {
+      await _carregarChamadosDoTecnico();
+      await ChamadosService.instance.recarregarChamados();
     }
   }
 
@@ -996,7 +1050,7 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
           color: Colors.transparent,
           child: InkWell(
             onTap: () => ticket.status == 'Concluído'
-                ? _confirmarRefazerRelatorio(ticket)
+                ? _abrirPdfRelatorioFinal(ticket)
                 : _abrirAtendimento(ticket),
             child: IntrinsicHeight(
               child: Row(
@@ -1213,9 +1267,17 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
                                             icon: const Icon(Icons.picture_as_pdf_rounded, size: 15),
                                             label: Text('Finalizado v$versao'),
                                             style: OutlinedButton.styleFrom(
-                                              foregroundColor: _emeraldDark,
-                                              backgroundColor: const Color(0xFFF0FDF4),
-                                              side: const BorderSide(color: Color(0xFF86EFAC)),
+                                              foregroundColor: ticket.relatorioGerenteEnviado
+                                                  ? _emeraldDark
+                                                  : const Color(0xFFC2410C),
+                                              backgroundColor: ticket.relatorioGerenteEnviado
+                                                  ? const Color(0xFFF0FDF4)
+                                                  : const Color(0xFFFFF7ED),
+                                              side: BorderSide(
+                                                color: ticket.relatorioGerenteEnviado
+                                                    ? const Color(0xFF86EFAC)
+                                                    : const Color(0xFFFDBA74),
+                                              ),
                                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                               textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
@@ -1234,6 +1296,38 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
                                               textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                                             ),
                                           ),
+                                          if (ticket.relatorioGerenteEnviado)
+                                            OutlinedButton.icon(
+                                              onPressed: () => _abrirRelatorioGerente(ticket),
+                                              icon: const Icon(Icons.check_circle_outline, size: 15),
+                                              label: Text(
+                                                ticket.custoTotalGerado > 0
+                                                    ? 'Relatório p/ Gerente ✓ (${NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$').format(ticket.custoTotalGerado)})'
+                                                    : 'Relatório p/ Gerente ✓',
+                                              ),
+                                              style: OutlinedButton.styleFrom(
+                                                foregroundColor: const Color(0xFF059669),
+                                                backgroundColor: const Color(0xFFECFDF5),
+                                                side: const BorderSide(color: Color(0xFF6EE7B7)),
+                                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                                textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                              ),
+                                            )
+                                          else
+                                            ElevatedButton.icon(
+                                              onPressed: () => _abrirRelatorioGerente(ticket),
+                                              icon: const Icon(Icons.calculate_outlined, size: 15),
+                                              label: const Text('Relatório p/ Gerente'),
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor: const Color(0xFFEA580C),
+                                                foregroundColor: Colors.white,
+                                                elevation: 0,
+                                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                                textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                                              ),
+                                            ),
                                         ],
                                       ],
                                     ),
@@ -1774,7 +1868,7 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
           } catch (_) {}
         }
 
-        final logHoras = LogHorasCustos(
+        LogHorasCustos logHoras = LogHorasCustos(
           id: 'log-${DateTime.now().millisecondsSinceEpoch}',
           idChamado: chamado.id,
           data: dias.isNotEmpty ? dias.first.data : DateTime.now(),
@@ -1782,6 +1876,25 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
           horaFim: dias.isNotEmpty ? (dias.first.horaFim ?? '17:00') : '17:00',
           kmRodado: chamado.kmEstimado ?? 0.0,
         );
+        if (chamado.id.isNotEmpty && !chamado.id.startsWith('c-')) {
+          try {
+            final logRes = await Supabase.instance.client
+                .from('log_horas_custos')
+                .select()
+                .eq('id_chamado', chamado.id)
+                .order('updated_at', ascending: false)
+                .limit(1)
+                .maybeSingle();
+            if (logRes != null) {
+              logHoras = LogHorasCustos.fromJson(Map<String, dynamic>.from(logRes));
+            }
+          } catch (_) {}
+        }
+
+        final custosParaPdf =
+            (chamado.relatorioGerenteEnviado && chamado.relatorioCustosJson != null)
+                ? RelatorioCustosGerente.fromMap(chamado.relatorioCustosJson!)
+                : null;
 
         pdfBytes = await AtsPdfService.instance.gerarRelatorioAtsPdf(
           chamado: chamado,
@@ -1794,6 +1907,7 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
           responsavelNome: chamado.responsavelAceiteNome ?? 'Cliente Responsável',
           videoUrl: chamado.videoUrl,
           versao: versao,
+          custosGerente: custosParaPdf,
         );
       }
 

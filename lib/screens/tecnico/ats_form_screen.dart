@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
@@ -7,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/chamado.dart';
 import '../../models/log_horas_custos.dart';
 import '../../models/dia_trabalho.dart';
+import '../../models/relatorio_custos_gerente.dart';
 import '../../services/ats_pdf_service.dart';
 import '../../services/chamados_service.dart';
 import '../../services/offline_storage_service.dart';
@@ -71,8 +73,29 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
   int _versaoRelatorioAtual = 0;
   String? _relatorioPdfUrlAnterior;
   String? _assinaturaUrlAnterior;
+  Uint8List? _assinaturaSalvaBytes;
+  bool _manterAssinaturaExistente = false;
+  bool _relatorioGerenteEnviadoAtual = false;
+  DateTime? _relatorioGerenteDataAtual;
+  double _custoTotalGeradoAtual = 0.0;
+  Map<String, dynamic>? _relatorioCustosJsonAtual;
+  double _hospedagemAnterior = 0.0;
+  double _outrosCustosAnterior = 0.0;
+  String? _observacoesLogAnterior;
 
   int get _proximaVersaoRelatorio => _versaoRelatorioAtual > 0 ? _versaoRelatorioAtual + 1 : 1;
+
+  bool _isPngValido(Uint8List bytes) {
+    return bytes.length >= 8 &&
+        bytes[0] == 0x89 &&
+        bytes[1] == 0x50 &&
+        bytes[2] == 0x4E &&
+        bytes[3] == 0x47 &&
+        bytes[4] == 0x0D &&
+        bytes[5] == 0x0A &&
+        bytes[6] == 0x1A &&
+        bytes[7] == 0x0A;
+  }
 
   @override
   void initState() {
@@ -103,6 +126,10 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       _versaoRelatorioAtual = c.relatorioVersao;
       _relatorioPdfUrlAnterior = c.relatorioPdfUrl;
       _assinaturaUrlAnterior = c.assinaturaUrl;
+      _relatorioGerenteEnviadoAtual = c.relatorioGerenteEnviado;
+      _relatorioGerenteDataAtual = c.relatorioGerenteData;
+      _custoTotalGeradoAtual = c.custoTotalGerado;
+      _relatorioCustosJsonAtual = c.relatorioCustosJson;
       if (c.servicoExecutado != null && c.servicoExecutado!.trim().isNotEmpty) {
         _servicoExecutadoCtrl.text = c.servicoExecutado!.trim();
       }
@@ -119,6 +146,8 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       _defeitoRelatado = t.defeitoRelatado ?? 'Anomalia informada pelo solicitante';
       _versaoRelatorioAtual = t.relatorioVersao;
       _relatorioPdfUrlAnterior = t.relatorioPdfUrl;
+      _relatorioGerenteEnviadoAtual = t.relatorioGerenteEnviado;
+      _custoTotalGeradoAtual = t.custoTotalGerado;
 
       // Tenta recuperar do ChamadosService em memória se disponível
       final cMemoria = ChamadosService.instance.obterChamadoPorNumeroAts(_numeroAts) ??
@@ -132,6 +161,17 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         }
         _relatorioPdfUrlAnterior ??= cMemoria.relatorioPdfUrl;
         _assinaturaUrlAnterior ??= cMemoria.assinaturaUrl;
+        _relatorioGerenteEnviadoAtual = cMemoria.relatorioGerenteEnviado;
+        _relatorioGerenteDataAtual ??= cMemoria.relatorioGerenteData;
+        if (cMemoria.custoTotalGerado > 0) {
+          _custoTotalGeradoAtual = cMemoria.custoTotalGerado;
+        }
+        _relatorioCustosJsonAtual ??= cMemoria.relatorioCustosJson;
+        if (cMemoria.responsavelAceiteNome != null &&
+            cMemoria.responsavelAceiteNome!.trim().isNotEmpty &&
+            _responsavelNomeCtrl.text.trim().isEmpty) {
+          _responsavelNomeCtrl.text = cMemoria.responsavelAceiteNome!.trim();
+        }
         if (cMemoria.servicoExecutado != null && cMemoria.servicoExecutado!.trim().isNotEmpty) {
           _servicoExecutadoCtrl.text = cMemoria.servicoExecutado!.trim();
         }
@@ -168,8 +208,45 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
 
     // Sincroniza dados com o Supabase automaticamente ao abrir a tela (carrega o que foi salvo no PC)
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _carregarAssinaturaSalvaSeNecessario();
       _sincronizarDadosComSupabase();
     });
+  }
+
+  Future<void> _carregarAssinaturaSalvaSeNecessario() async {
+    if (_assinaturaSalvaBytes != null) return;
+    final url = _assinaturaUrlAnterior?.trim();
+    if (url == null || url.isEmpty) return;
+
+    final ehRevisaoOuAts = widget.isRevisao ||
+        _versaoRelatorioAtual >= 1 ||
+        url.contains('assinaturas/ats_');
+    if (!ehRevisaoOuAts) return;
+
+    try {
+      if (url.contains('/orcamentos/')) {
+        var path = url.split('/orcamentos/').last.split('?').first;
+        try {
+          path = Uri.decodeFull(path);
+        } catch (_) {}
+        path = path.replaceFirst(RegExp(r'^/+'), '').trim();
+        if (path.isNotEmpty) {
+          final bytes = await Supabase.instance.client.storage
+              .from('orcamentos')
+              .download(path);
+          if (bytes.isNotEmpty && _isPngValido(bytes) && mounted) {
+            setState(() {
+              _assinaturaSalvaBytes = bytes;
+              _manterAssinaturaExistente = true;
+            });
+          }
+        }
+      }
+    } catch (e, stackTrace) {
+      if (kDebugMode) {
+        debugPrint('[AtsForm] Aviso ao recuperar assinatura salva: $e\n$stackTrace');
+      }
+    }
   }
 
   Future<void> _carregarRascunhoLocal() async {
@@ -191,8 +268,31 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         if (offlineData['refeicao'] != null) {
           _refeicaoCtrl.text = offlineData['refeicao'].toString();
         }
+        if (offlineData['hospedagem'] != null) {
+          _hospedagemAnterior = (offlineData['hospedagem'] as num?)?.toDouble() ??
+              double.tryParse(offlineData['hospedagem'].toString()) ?? 0.0;
+        }
+        if (offlineData['outros_custos'] != null) {
+          _outrosCustosAnterior = (offlineData['outros_custos'] as num?)?.toDouble() ??
+              double.tryParse(offlineData['outros_custos'].toString()) ?? 0.0;
+        }
+        if (offlineData['observacoes'] != null) {
+          _observacoesLogAnterior = offlineData['observacoes'].toString();
+        }
         if (offlineData['responsavel_nome'] != null) {
           _responsavelNomeCtrl.text = offlineData['responsavel_nome'].toString();
+        }
+        if (offlineData['assinatura_png_base64'] != null &&
+            offlineData['assinatura_png_base64'].toString().isNotEmpty) {
+          try {
+            final decoded = base64Decode(offlineData['assinatura_png_base64'].toString());
+            if (_isPngValido(decoded)) {
+              _assinaturaSalvaBytes = decoded;
+              if (widget.isRevisao || _versaoRelatorioAtual >= 1) {
+                _manterAssinaturaExistente = true;
+              }
+            }
+          } catch (_) {}
         }
         if (offlineData['dias_trabalho'] != null && (offlineData['dias_trabalho'] is List)) {
           final list = (offlineData['dias_trabalho'] as List)
@@ -289,17 +389,19 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
 
       // 1. Busca dados atualizados do chamado (memorial servico_executado, responsavel, tipo_atendimento, email)
       Map<String, dynamic>? chamadoRes;
+      const selectFieldsSync =
+          'id, servico_executado, responsavel_aceite_nome, tipo_atendimento, email_cliente, cliente_email, relatorio_pdf_url, relatorio_versao, assinatura_url, relatorio_gerente_enviado, relatorio_gerente_data, custo_total_gerado, relatorio_custos_json';
       if (_chamadoId.isNotEmpty && !_chamadoId.startsWith('c-')) {
         chamadoRes = await client
             .from('chamados')
-            .select('id, servico_executado, responsavel_aceite_nome, tipo_atendimento, email_cliente, cliente_email, relatorio_pdf_url, relatorio_versao, assinatura_url')
+            .select(selectFieldsSync)
             .eq('id', _chamadoId)
             .maybeSingle();
       }
       if (chamadoRes == null && _numeroAts.isNotEmpty) {
         chamadoRes = await client
             .from('chamados')
-            .select('id, servico_executado, responsavel_aceite_nome, tipo_atendimento, email_cliente, cliente_email, relatorio_pdf_url, relatorio_versao, assinatura_url')
+            .select(selectFieldsSync)
             .eq('numero_ats', _numeroAts)
             .maybeSingle();
       }
@@ -325,6 +427,21 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         if (assinaturaCloud != null && assinaturaCloud.trim().isNotEmpty) {
           _assinaturaUrlAnterior = assinaturaCloud.trim();
         }
+        if (chamadoRes['relatorio_gerente_enviado'] == true) {
+          _relatorioGerenteEnviadoAtual = true;
+        }
+        if (chamadoRes['relatorio_gerente_data'] != null) {
+          _relatorioGerenteDataAtual =
+              DateTime.tryParse(chamadoRes['relatorio_gerente_data'].toString());
+        }
+        if (chamadoRes['custo_total_gerado'] != null) {
+          _custoTotalGeradoAtual =
+              (chamadoRes['custo_total_gerado'] as num?)?.toDouble() ?? _custoTotalGeradoAtual;
+        }
+        if (chamadoRes['relatorio_custos_json'] is Map) {
+          _relatorioCustosJsonAtual =
+              Map<String, dynamic>.from(chamadoRes['relatorio_custos_json'] as Map);
+        }
 
         if (servicoCloud != null && servicoCloud.trim().isNotEmpty) {
           _servicoExecutadoCtrl.text = servicoCloud.trim();
@@ -339,6 +456,9 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
           _emailCliente = emailCloud.trim();
         }
       }
+
+      // Recupera assinatura anterior do Storage (permite Refazer Relatório mantendo assinatura)
+      await _carregarAssinaturaSalvaSeNecessario();
 
       // 1.1 Atualiza lista de técnicos da base
       await _carregarTecnicosDisponiveis();
@@ -380,6 +500,15 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
           if (logRes['refeicao'] != null && logRes['refeicao'].toString() != '0.00') {
             _refeicaoCtrl.text = logRes['refeicao'].toString();
           }
+          if (logRes['hospedagem'] != null) {
+            _hospedagemAnterior = (logRes['hospedagem'] as num?)?.toDouble() ?? _hospedagemAnterior;
+          }
+          if (logRes['outros_custos'] != null) {
+            _outrosCustosAnterior = (logRes['outros_custos'] as num?)?.toDouble() ?? _outrosCustosAnterior;
+          }
+          if (logRes['observacoes'] != null && logRes['observacoes'].toString().trim().isNotEmpty) {
+            _observacoesLogAnterior = logRes['observacoes'].toString();
+          }
         }
       }
 
@@ -395,6 +524,10 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
           'km_rodado': double.tryParse(_kmRodadoCtrl.text.replaceAll(',', '.')) ?? 0.0,
           'pedagio': double.tryParse(_pedagioCtrl.text.replaceAll(',', '.')) ?? 0.0,
           'refeicao': double.tryParse(_refeicaoCtrl.text.replaceAll(',', '.')) ?? 0.0,
+          'hospedagem': _hospedagemAnterior,
+          'outros_custos': _outrosCustosAnterior,
+          if (_observacoesLogAnterior != null) 'observacoes': _observacoesLogAnterior,
+          if (_assinaturaSalvaBytes != null) 'assinatura_png_base64': base64Encode(_assinaturaSalvaBytes!),
           'servico_executado': _servicoExecutadoCtrl.text.trim(),
           'responsavel_nome': _responsavelNomeCtrl.text.trim(),
           'pending_sync': false,
@@ -458,6 +591,10 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       'km_rodado': kmRodado,
       'pedagio': pedagio,
       'refeicao': refeicao,
+      'hospedagem': _hospedagemAnterior,
+      'outros_custos': _outrosCustosAnterior,
+      if (_observacoesLogAnterior != null) 'observacoes': _observacoesLogAnterior,
+      if (_assinaturaSalvaBytes != null) 'assinatura_png_base64': base64Encode(_assinaturaSalvaBytes!),
       'servico_executado': _servicoExecutadoCtrl.text.trim(),
       'responsavel_nome': _responsavelNomeCtrl.text.trim(),
       'qtd_fotos': 0,
@@ -532,6 +669,9 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
             'km_rodado': kmRodado,
             'pedagio': pedagio,
             'refeicao': refeicao,
+            'hospedagem': _hospedagemAnterior,
+            'outros_custos': _outrosCustosAnterior,
+            if (_observacoesLogAnterior != null) 'observacoes': _observacoesLogAnterior,
           });
 
           await OfflineStorageService.instance.marcarSincronizado(_chamadoId);
@@ -592,8 +732,12 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
   // FLUXO DE FINALIZAÇÃO (OFFLINE-FIRST)
   // ============================================================================
   Future<void> _finalizarAtendimento() async {
-    // 1. Validações
-    if (_signatureController.isEmpty) {
+    // 1. Validações (aceita assinatura mantida automaticamente no modo revisão)
+    final bool usandoAssinaturaNova = _signatureController.isNotEmpty;
+    final bool podeUsarAssinaturaMantida =
+        _manterAssinaturaExistente && _assinaturaSalvaBytes != null;
+
+    if (!usandoAssinaturaNova && !podeUsarAssinaturaMantida) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Por favor, colete a assinatura do cliente antes de finalizar.'),
@@ -634,10 +778,15 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       kmRodado: kmRodado,
       pedagio: pedagio,
       refeicao: refeicao,
+      hospedagem: _hospedagemAnterior,
+      outrosCustos: _outrosCustosAnterior,
+      observacoes: _observacoesLogAnterior,
     );
 
-    // Extrai imagem PNG da assinatura estritamente a partir do buffer codificado em PNG
-    final Uint8List? assinaturaBytes = await _signatureController.toPngBytes();
+    // Extrai imagem PNG da nova assinatura ou reaproveita assinatura salva
+    final Uint8List? assinaturaBytes = usandoAssinaturaNova
+        ? await _signatureController.toPngBytes()
+        : _assinaturaSalvaBytes;
     if (assinaturaBytes == null || assinaturaBytes.isEmpty) {
       setState(() => _isSubmitting = false);
       if (mounted) {
@@ -649,17 +798,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
     }
 
     // Validação estrita de segurança: validação de cabeçalho PNG (magic number) e bloqueio de SVG
-    final bool isValidoPng = assinaturaBytes.length >= 8 &&
-        assinaturaBytes[0] == 0x89 &&
-        assinaturaBytes[1] == 0x50 &&
-        assinaturaBytes[2] == 0x4E &&
-        assinaturaBytes[3] == 0x47 &&
-        assinaturaBytes[4] == 0x0D &&
-        assinaturaBytes[5] == 0x0A &&
-        assinaturaBytes[6] == 0x1A &&
-        assinaturaBytes[7] == 0x0A;
-
-    if (!isValidoPng) {
+    if (!_isPngValido(assinaturaBytes)) {
       setState(() => _isSubmitting = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -668,6 +807,8 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       }
       return;
     }
+
+    _assinaturaSalvaBytes = assinaturaBytes;
 
     // --------------------------------------------------------------------------
     // PASSO 1: Salvar localmente no banco de dados local (Hive) - Offline-First
@@ -684,6 +825,10 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       'km_rodado': kmRodado,
       'pedagio': pedagio,
       'refeicao': refeicao,
+      'hospedagem': _hospedagemAnterior,
+      'outros_custos': _outrosCustosAnterior,
+      if (_observacoesLogAnterior != null) 'observacoes': _observacoesLogAnterior,
+      'assinatura_png_base64': base64Encode(assinaturaBytes),
       'servico_executado': _servicoExecutadoCtrl.text.trim(),
       'responsavel_nome': _responsavelNomeCtrl.text.trim(),
       'qtd_fotos': 0,
@@ -713,6 +858,10 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         defeitoRelatado: _defeitoRelatado,
         servicoExecutado: _servicoExecutadoCtrl.text.trim(),
         relatorioVersao: _proximaVersaoRelatorio,
+        relatorioGerenteEnviado: _relatorioGerenteEnviadoAtual,
+        relatorioGerenteData: _relatorioGerenteDataAtual,
+        custoTotalGerado: _custoTotalGeradoAtual,
+        relatorioCustosJson: _relatorioCustosJsonAtual,
         razaoSocial: _razaoSocial,
       );
 
@@ -774,43 +923,54 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
           : (_versaoRelatorioAtual > 0 ? _versaoRelatorioAtual + 1 : 1);
       final cleanAts = _numeroAts.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
 
-      // A. Upload da assinatura (apenas buffer PNG codificado, bloqueando .svg)
+      // A. Upload da assinatura (apenas se nova assinatura desenhada ou se não havia URL anterior)
       String? assinaturaUrl;
       final sigPath = 'assinaturas/ats_${cleanAts}_v${novaVersao}_$timestamp.png';
       if (sigPath.toLowerCase().endsWith('.svg')) {
         throw Exception('Upload de arquivos SVG é bloqueado por diretrizes de segurança.');
       }
-      try {
-        await client.storage.from('orcamentos').uploadBinary(
-              sigPath,
-              assinaturaBytes,
-              fileOptions: const FileOptions(contentType: 'image/png', upsert: true),
+      if (!usandoAssinaturaNova &&
+          _assinaturaUrlAnterior != null &&
+          _assinaturaUrlAnterior!.trim().isNotEmpty &&
+          _assinaturaUrlAnterior!.contains('/orcamentos/')) {
+        assinaturaUrl = _assinaturaUrlAnterior!.trim();
+      } else {
+        try {
+          await client.storage.from('orcamentos').uploadBinary(
+                sigPath,
+                assinaturaBytes,
+                fileOptions: const FileOptions(contentType: 'image/png', upsert: true),
+              );
+          assinaturaUrl = client.storage.from('orcamentos').getPublicUrl(sigPath);
+        } catch (e, stackTrace) {
+          if (kDebugMode) {
+            debugPrint('[AtsForm] Falha no upload da assinatura no Storage: $e\n$stackTrace');
+          }
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Aviso: Assinatura salva no aparelho. Falha no envio para o servidor por instabilidade de rede.'),
+                backgroundColor: Colors.orange,
+              ),
             );
-        assinaturaUrl = client.storage.from('orcamentos').getPublicUrl(sigPath);
-      } catch (e, stackTrace) {
-        if (kDebugMode) {
-          debugPrint('[AtsForm] Falha no upload da assinatura no Storage: $e\n$stackTrace');
-        }
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Aviso: Assinatura salva no aparelho. Falha no envio para o servidor por instabilidade de rede.'),
-              backgroundColor: Colors.orange,
-            ),
-          );
+          }
         }
       }
 
       // B. URL de referência do atendimento
       final String videoUrl = 'https://pmach.com.br/ats/video/$_numeroAts';
 
-      // C. Gerar layout do relatório em PDF (com assinatura e QR Code do vídeo)
+      // C. Gerar layout do relatório em PDF (preservando custos do gerente se já enviados)
       final chamadoAtual = (widget.chamado != null)
           ? widget.chamado!.copyWith(
               tipoAtendimento: _tipoAtendimento,
               servicoExecutado: _servicoExecutadoCtrl.text.trim(),
               responsavelAceiteNome: _responsavelNomeCtrl.text.trim(),
               relatorioVersao: novaVersao,
+              relatorioGerenteEnviado: _relatorioGerenteEnviadoAtual,
+              relatorioGerenteData: _relatorioGerenteDataAtual,
+              custoTotalGerado: _custoTotalGeradoAtual,
+              relatorioCustosJson: _relatorioCustosJsonAtual,
               status: ChamadoStatus.finalizado,
             )
           : Chamado(
@@ -825,9 +985,18 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
               defeitoRelatado: _defeitoRelatado,
               servicoExecutado: _servicoExecutadoCtrl.text.trim(),
               relatorioVersao: novaVersao,
+              relatorioGerenteEnviado: _relatorioGerenteEnviadoAtual,
+              relatorioGerenteData: _relatorioGerenteDataAtual,
+              custoTotalGerado: _custoTotalGeradoAtual,
+              relatorioCustosJson: _relatorioCustosJsonAtual,
               tokenUrl: _chamadoId,
               status: ChamadoStatus.finalizado,
             );
+
+      final RelatorioCustosGerente? custosParaPdf =
+          (_relatorioGerenteEnviadoAtual && _relatorioCustosJsonAtual != null)
+              ? RelatorioCustosGerente.fromMap(_relatorioCustosJsonAtual!)
+              : null;
 
       final pdfBytes = await AtsPdfService.instance.gerarRelatorioAtsPdf(
         chamado: chamadoAtual,
@@ -838,9 +1007,10 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         responsavelNome: _responsavelNomeCtrl.text.trim(),
         videoUrl: videoUrl,
         versao: novaVersao,
+        custosGerente: custosParaPdf,
       );
 
-      // D. Upload do PDF finalizado versionado (v1, v2, ...) para o Storage
+      // D. Upload do PDF finalizado versionado (v1, v2, v3...) para o Storage
       String? pdfUrl;
       final pdfPath = 'relatorios_ats/ats_${cleanAts}_v$novaVersao.pdf';
       try {
@@ -849,7 +1019,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
               pdfBytes,
               fileOptions: const FileOptions(contentType: 'application/pdf', upsert: true),
             );
-        pdfUrl = client.storage.from('orcamentos').getPublicUrl(pdfPath);
+        pdfUrl = '${client.storage.from('orcamentos').getPublicUrl(pdfPath)}?t=$timestamp';
       } catch (e, stackTrace) {
         if (kDebugMode) {
           debugPrint('[AtsForm] Falha no upload do PDF final no Storage: $e\n$stackTrace');
@@ -864,13 +1034,14 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         }
       }
 
-      // E. UPDATE na tabela chamados atualizando relatório final (sem sobrescrever orcamento_pdf_url)
+      // E. UPDATE na tabela chamados atualizando relatório final (mantém barra p/ Gerente Laranja até enviar Relatório p/ Gerente)
       final updateData = <String, dynamic>{
         'status': ChamadoStatus.finalizado,
         'tipo_atendimento': _tipoAtendimento,
         if (assinaturaUrl != null) 'assinatura_url': assinaturaUrl,
         if (pdfUrl != null) 'relatorio_pdf_url': pdfUrl,
         'relatorio_versao': novaVersao,
+        'relatorio_gerente_enviado': _relatorioGerenteEnviadoAtual,
         'servico_executado': _servicoExecutadoCtrl.text.trim(),
         'termos_aceitos': true,
         'responsavel_aceite_nome': _responsavelNomeCtrl.text.trim(),
@@ -884,7 +1055,8 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         await client.from('chamados').update(updateData).eq('numero_ats', _numeroAts);
       }
 
-      // E.1 Somente após upload do novo PDF e UPDATE no banco, remove o PDF e assinatura ATS anteriores
+      // E.1 Somente após upload do novo PDF e UPDATE no banco, remove versão anterior do PDF
+      // (e remove assinatura anterior apenas quando uma nova assinatura foi enviada)
       if (pdfUrl != null) {
         try {
           final oldPaths = <String>{};
@@ -917,11 +1089,15 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
             }
           }
 
-          final prevSigPath = extractPath(_assinaturaUrlAnterior);
-          if (prevSigPath != null &&
-              prevSigPath.startsWith('assinaturas/ats_') &&
-              prevSigPath != sigPath) {
-            oldPaths.add(prevSigPath);
+          if (usandoAssinaturaNova &&
+              assinaturaUrl != null &&
+              assinaturaUrl != _assinaturaUrlAnterior) {
+            final prevSigPath = extractPath(_assinaturaUrlAnterior);
+            if (prevSigPath != null &&
+                prevSigPath.startsWith('assinaturas/ats_') &&
+                prevSigPath != sigPath) {
+              oldPaths.add(prevSigPath);
+            }
           }
 
           if (oldPaths.isNotEmpty) {
@@ -946,6 +1122,9 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
             'km_rodado': kmRodado,
             'pedagio': pedagio,
             'refeicao': refeicao,
+            'hospedagem': _hospedagemAnterior,
+            'outros_custos': _outrosCustosAnterior,
+            if (_observacoesLogAnterior != null) 'observacoes': _observacoesLogAnterior,
           });
 
           // Gravação dos múltiplos dias em ats_dias_trabalho
@@ -993,6 +1172,10 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         servicoExecutado: _servicoExecutadoCtrl.text.trim(),
         relatorioPdfUrl: pdfUrl,
         relatorioVersao: novaVersao,
+        relatorioGerenteEnviado: _relatorioGerenteEnviadoAtual,
+        relatorioGerenteData: _relatorioGerenteDataAtual,
+        custoTotalGerado: _custoTotalGeradoAtual,
+        relatorioCustosJson: _relatorioCustosJsonAtual,
         razaoSocial: _razaoSocial,
         endereco: _endereco,
         modeloMaquina: _modeloMaquina,
@@ -1126,7 +1309,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Modo Revisão — Finalizado v$_proximaVersaoRelatorio: Ajuste o relatório e colete a nova assinatura do cliente. Ao finalizar, o relatório Finalizado v$_proximaVersaoRelatorio substituirá e apagará o Finalizado v${_versaoRelatorioAtual > 0 ? _versaoRelatorioAtual : 1}.',
+                          'Modo Revisão — Finalizado v$_proximaVersaoRelatorio: Ajuste os dados do relatório. A assinatura anterior do cliente é mantida automaticamente (você pode coletar uma nova assinatura apenas se desejar). Ao finalizar, a versão Finalizado v$_proximaVersaoRelatorio substituirá o Finalizado v${_versaoRelatorioAtual > 0 ? _versaoRelatorioAtual : 1}.',
                           style: const TextStyle(
                             fontSize: 12,
                             color: Color(0xFF92400E),
@@ -2379,47 +2562,145 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
                   ),
                 ],
               ),
-              TextButton.icon(
-                onPressed: () {
-                  _signatureController.clear();
-                  setState(() {});
-                },
-                icon: const Icon(Icons.cleaning_services_outlined, size: 16, color: Color(0xFF64748B)),
-                label: const Text('Limpar', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
-              ),
+              if (_manterAssinaturaExistente && _assinaturaSalvaBytes != null)
+                TextButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _manterAssinaturaExistente = false;
+                      _signatureController.clear();
+                    });
+                  },
+                  icon: const Icon(Icons.edit_outlined, size: 16, color: Color(0xFF0A369D)),
+                  label: const Text(
+                    'Coletar Nova Assinatura (Opcional)',
+                    style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF0A369D)),
+                  ),
+                )
+              else
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_assinaturaSalvaBytes != null)
+                      TextButton.icon(
+                        onPressed: () {
+                          _signatureController.clear();
+                          setState(() => _manterAssinaturaExistente = true);
+                        },
+                        icon: const Icon(Icons.verified_outlined, size: 16, color: Color(0xFF15803D)),
+                        label: const Text(
+                          'Manter Anterior',
+                          style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Color(0xFF15803D)),
+                        ),
+                      ),
+                    TextButton.icon(
+                      onPressed: () {
+                        _signatureController.clear();
+                        setState(() {});
+                      },
+                      icon: const Icon(Icons.cleaning_services_outlined, size: 16, color: Color(0xFF64748B)),
+                      label: const Text('Limpar', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                    ),
+                  ],
+                ),
             ],
           ),
           const SizedBox(height: 8),
 
-          // Widget Signature oficial do pacote 'signature'
-          Container(
-            height: 160,
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFCBD5E1), width: 1.5),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Stack(
+          if (_manterAssinaturaExistente && _assinaturaSalvaBytes != null) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0FDF4),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFF86EFAC), width: 1.5),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Signature(
-                    controller: _signatureController,
-                    height: 160,
-                    backgroundColor: Colors.white,
-                  ),
-                  if (_signatureController.isEmpty)
-                    const Center(
-                      child: Text(
-                        'Toque e assine neste campo',
-                        style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                  const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.verified_user_rounded, size: 16, color: Color(0xFF15803D)),
+                      SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          'Assinatura do cliente mantida da versão anterior',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF15803D),
+                          ),
+                        ),
                       ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    height: 115,
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFCBD5E1)),
                     ),
+                    child: Image.memory(
+                      _assinaturaSalvaBytes!,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _manterAssinaturaExistente = false;
+                        _signatureController.clear();
+                      });
+                    },
+                    icon: const Icon(Icons.draw_outlined, size: 16),
+                    label: const Text('Coletar Nova Assinatura (Opcional)'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF0A369D),
+                      side: const BorderSide(color: Color(0xFF93C5FD)),
+                      backgroundColor: Colors.white,
+                      textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                  ),
                 ],
               ),
             ),
-          ),
+          ] else ...[
+            // Widget Signature oficial do pacote 'signature'
+            Container(
+              height: 160,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFCBD5E1), width: 1.5),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Stack(
+                  children: [
+                    Signature(
+                      controller: _signatureController,
+                      height: 160,
+                      backgroundColor: Colors.white,
+                    ),
+                    if (_signatureController.isEmpty)
+                      const Center(
+                        child: Text(
+                          'Toque e assine neste campo',
+                          style: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 14),
 
           // Nome Legível

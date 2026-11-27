@@ -493,6 +493,10 @@ class ChamadosService {
     String? servicoExecutado,
     String? relatorioPdfUrl,
     int? relatorioVersao,
+    bool? relatorioGerenteEnviado,
+    DateTime? relatorioGerenteData,
+    double? custoTotalGerado,
+    Map<String, dynamic>? relatorioCustosJson,
     String? razaoSocial,
     String? endereco,
     String? modeloMaquina,
@@ -522,6 +526,18 @@ class ChamadosService {
     }
     if (relatorioVersao != null && relatorioVersao > 0) {
       updateData['relatorio_versao'] = relatorioVersao;
+    }
+    if (relatorioGerenteEnviado != null) {
+      updateData['relatorio_gerente_enviado'] = relatorioGerenteEnviado;
+    }
+    if (relatorioGerenteData != null) {
+      updateData['relatorio_gerente_data'] = relatorioGerenteData.toIso8601String();
+    }
+    if (custoTotalGerado != null) {
+      updateData['custo_total_gerado'] = custoTotalGerado;
+    }
+    if (relatorioCustosJson != null) {
+      updateData['relatorio_custos_json'] = relatorioCustosJson;
     }
     if (razaoSocial != null && razaoSocial.trim().isNotEmpty) {
       updateData['razao_social'] = razaoSocial.trim();
@@ -577,6 +593,10 @@ class ChamadosService {
           servicoExecutado: servicoExecutado ?? atual.servicoExecutado,
           relatorioPdfUrl: relatorioPdfUrl ?? atual.relatorioPdfUrl,
           relatorioVersao: relatorioVersao ?? (atual.relatorioVersao > 0 ? atual.relatorioVersao : 1),
+          relatorioGerenteEnviado: relatorioGerenteEnviado ?? atual.relatorioGerenteEnviado,
+          relatorioGerenteData: relatorioGerenteData ?? atual.relatorioGerenteData,
+          custoTotalGerado: custoTotalGerado ?? atual.custoTotalGerado,
+          relatorioCustosJson: relatorioCustosJson ?? atual.relatorioCustosJson,
           razaoSocial: razaoSocial ?? atual.razaoSocial,
           endereco: endereco ?? atual.endereco,
           modeloMaquina: modeloMaquina ?? atual.modeloMaquina,
@@ -597,6 +617,87 @@ class ChamadosService {
     }
 
     return false;
+  }
+
+  /// Registra o envio do fechamento de custos ("Relatório p/ Gerente"),
+  /// alterando a barra do relatório finalizado de Laranja para Verde no Gerente.
+  Future<bool> registrarRelatorioGerente({
+    required String chamadoId,
+    required String numeroAts,
+    required double custoTotalGerado,
+    required Map<String, dynamic> relatorioCustosJson,
+    String? relatorioPdfUrl,
+    int? relatorioVersao,
+  }) async {
+    final agora = DateTime.now();
+    final updateData = <String, dynamic>{
+      'relatorio_gerente_enviado': true,
+      'relatorio_gerente_data': agora.toIso8601String(),
+      'custo_total_gerado': custoTotalGerado,
+      'relatorio_custos_json': relatorioCustosJson,
+      'updated_at': agora.toIso8601String(),
+      if (relatorioPdfUrl != null && relatorioPdfUrl.trim().isNotEmpty)
+        'relatorio_pdf_url': relatorioPdfUrl.trim(),
+      if (relatorioVersao != null && relatorioVersao > 0)
+        'relatorio_versao': relatorioVersao,
+    };
+
+    final cleanAts = numeroAts.replaceAll('ATS-', '').trim();
+    bool remotoSucesso = false;
+    try {
+      if (chamadoId.isNotEmpty && !chamadoId.startsWith('c-')) {
+        await Supabase.instance.client
+            .from('chamados')
+            .update(updateData)
+            .eq('id', chamadoId);
+      } else {
+        await Supabase.instance.client
+            .from('chamados')
+            .update(updateData)
+            .eq('numero_ats', cleanAts);
+      }
+      remotoSucesso = true;
+      syncErrorNotifier.value = null;
+    } catch (e, stack) {
+      if (kDebugMode) {
+        debugPrint('[ChamadosService] Erro ao registrar Relatório p/ Gerente no Supabase: $e\n$stack');
+      }
+      syncErrorNotifier.value = 'Falha ao sincronizar Relatório p/ Gerente: $e';
+    }
+
+    try {
+      final listaAtual = List<Chamado>.from(chamadosNotifier.value);
+      final index = listaAtual.indexWhere((c) =>
+          (chamadoId.isNotEmpty && c.id == chamadoId) ||
+          c.numeroAts == cleanAts ||
+          c.numeroAts == numeroAts);
+      if (index != -1) {
+        final atual = listaAtual[index];
+        listaAtual[index] = atual.copyWith(
+          relatorioGerenteEnviado: true,
+          relatorioGerenteData: agora,
+          custoTotalGerado: custoTotalGerado,
+          relatorioCustosJson: relatorioCustosJson,
+          relatorioPdfUrl: (relatorioPdfUrl != null && relatorioPdfUrl.trim().isNotEmpty)
+              ? relatorioPdfUrl.trim()
+              : atual.relatorioPdfUrl,
+          relatorioVersao: (relatorioVersao != null && relatorioVersao > 0)
+              ? relatorioVersao
+              : atual.relatorioVersao,
+          pendingSync: !remotoSucesso,
+          updatedAt: agora,
+        );
+        chamadosNotifier.value = listaAtual;
+        realtimeTickNotifier.value++;
+        return true;
+      }
+    } catch (e, stack) {
+      if (kDebugMode) {
+        debugPrint('[ChamadosService] Erro ao atualizar memória em registrarRelatorioGerente: $e\n$stack');
+      }
+    }
+
+    return remotoSucesso;
   }
 
   String? _extrairStoragePathOrcamentos(String? url) {
