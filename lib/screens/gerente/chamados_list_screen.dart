@@ -14,6 +14,7 @@ import '../../services/chamados_service.dart';
 import '../../services/orcamento_pdf_service.dart';
 import '../../services/tecnicos_service.dart';
 import '../../utils/url_helper.dart';
+import '../../widgets/relatorio_gerente_dialog.dart';
 
 class ChamadosListScreen extends StatefulWidget {
   final VoidCallback? onAlternarParaTabela;
@@ -564,11 +565,11 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
                 ),
 
                 if (chamado.status == ChamadoStatus.finalizado ||
-                    (chamado.relatorioPdfUrl != null && chamado.relatorioPdfUrl!.trim().isNotEmpty))
+                    (chamado.relatorioPdfUrl != null && chamado.relatorioPdfUrl!.trim().isNotEmpty)) ...[
                   Tooltip(
                     message: chamado.relatorioGerenteEnviado
                         ? 'Relatório p/ Gerente recebido — Pronto para cobrar o cliente'
-                        : 'Aguardando técnico enviar Relatório p/ Gerente (KM e custos finais)',
+                        : 'Aguardando técnico atualizar KM em Relatório p/ Gerente',
                     child: OutlinedButton.icon(
                       onPressed: () => _visualizarRelatorioFinalizado(chamado),
                       icon: Icon(
@@ -578,8 +579,7 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
                         size: 16,
                       ),
                       label: Text(
-                        'Finalizado v${chamado.relatorioVersao > 0 ? chamado.relatorioVersao : 1}'
-                        '${(chamado.relatorioGerenteEnviado && chamado.custoTotalGerado > 0) ? ' • ${NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$').format(chamado.custoTotalGerado)}' : ''}',
+                        'Finalizado v${chamado.relatorioVersao > 0 ? chamado.relatorioVersao : 1}',
                       ),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: chamado.relatorioGerenteEnviado
@@ -599,6 +599,41 @@ class _ChamadosListScreenState extends State<ChamadosListScreen> {
                       ),
                     ),
                   ),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final atualizado = await showDialog<bool>(
+                        context: context,
+                        barrierDismissible: false,
+                        builder: (_) => RelatorioGerenteDialog(chamado: chamado),
+                      );
+                      if (atualizado == true && mounted) {
+                        await ChamadosService.instance.recarregarChamados();
+                      }
+                    },
+                    icon: const Icon(Icons.calculate_outlined, size: 16),
+                    label: Text(
+                      (chamado.custoTotalGerado > 0 || chamado.relatorioGerenteEnviado)
+                          ? 'Custo Total: ${NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$').format(chamado.custoTotalGerado)}'
+                          : 'Calcular Custos',
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: chamado.relatorioGerenteEnviado
+                          ? const Color(0xFF0A369D)
+                          : const Color(0xFFD97706),
+                      backgroundColor: chamado.relatorioGerenteEnviado
+                          ? const Color(0xFFEFF6FF)
+                          : const Color(0xFFFFFBEB),
+                      side: BorderSide(
+                        color: chamado.relatorioGerenteEnviado
+                            ? const Color(0xFF93C5FD)
+                            : const Color(0xFFFCD34D),
+                        width: 1.3,
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
 
                 // Botão "Atribuir Técnico" (habilitado quando status for aprovado_pendente)
                 if (isAprovadoPendente)

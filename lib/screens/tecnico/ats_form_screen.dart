@@ -19,6 +19,7 @@ class AtsFormScreen extends StatefulWidget {
   final Chamado? chamado;
   final bool isEmbedded;
   final bool isRevisao;
+  final bool isEnvioGerente;
 
   const AtsFormScreen({
     super.key,
@@ -26,6 +27,7 @@ class AtsFormScreen extends StatefulWidget {
     this.chamado,
     this.isEmbedded = false,
     this.isRevisao = false,
+    this.isEnvioGerente = false,
   });
 
   @override
@@ -37,6 +39,7 @@ typedef AtsReportScreen = AtsFormScreen;
 
 class _AtsFormScreenState extends State<AtsFormScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _despesasGeraisKey = GlobalKey();
   bool _isSubmitting = false;
   bool _isSyncing = false;
   bool _isSavingDraft = false;
@@ -189,8 +192,11 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       _defeitoRelatado = '';
     }
 
-    if (widget.isRevisao && _versaoRelatorioAtual <= 0) {
+    if ((widget.isRevisao || widget.isEnvioGerente) && _versaoRelatorioAtual <= 0) {
       _versaoRelatorioAtual = 1;
+    }
+    if (widget.isEnvioGerente) {
+      _manterAssinaturaExistente = true;
     }
 
     // Inicializa lista de dias trabalhados
@@ -207,9 +213,17 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
     _carregarTecnicosDisponiveis();
 
     // Sincroniza dados com o Supabase automaticamente ao abrir a tela (carrega o que foi salvo no PC)
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _carregarAssinaturaSalvaSeNecessario();
-      _sincronizarDadosComSupabase();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _carregarAssinaturaSalvaSeNecessario();
+      await _sincronizarDadosComSupabase();
+      if (widget.isEnvioGerente && mounted && _despesasGeraisKey.currentContext != null) {
+        Scrollable.ensureVisible(
+          _despesasGeraisKey.currentContext!,
+          duration: const Duration(milliseconds: 450),
+          curve: Curves.easeOutCubic,
+          alignment: 0.15,
+        );
+      }
     });
   }
 
@@ -219,6 +233,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
     if (url == null || url.isEmpty) return;
 
     final ehRevisaoOuAts = widget.isRevisao ||
+        widget.isEnvioGerente ||
         _versaoRelatorioAtual >= 1 ||
         url.contains('assinaturas/ats_');
     if (!ehRevisaoOuAts) return;
@@ -288,7 +303,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
             final decoded = base64Decode(offlineData['assinatura_png_base64'].toString());
             if (_isPngValido(decoded)) {
               _assinaturaSalvaBytes = decoded;
-              if (widget.isRevisao || _versaoRelatorioAtual >= 1) {
+              if (widget.isRevisao || widget.isEnvioGerente || _versaoRelatorioAtual >= 1) {
                 _manterAssinaturaExistente = true;
               }
             }
@@ -732,12 +747,12 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
   // FLUXO DE FINALIZAÇÃO (OFFLINE-FIRST)
   // ============================================================================
   Future<void> _finalizarAtendimento() async {
-    // 1. Validações (aceita assinatura mantida automaticamente no modo revisão)
+    // 1. Validações (aceita assinatura mantida automaticamente no modo revisão ou Relatório p/ Gerente)
     final bool usandoAssinaturaNova = _signatureController.isNotEmpty;
     final bool podeUsarAssinaturaMantida =
         _manterAssinaturaExistente && _assinaturaSalvaBytes != null;
 
-    if (!usandoAssinaturaNova && !podeUsarAssinaturaMantida) {
+    if (!usandoAssinaturaNova && !podeUsarAssinaturaMantida && !widget.isEnvioGerente) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Por favor, colete a assinatura do cliente antes de finalizar.'),
@@ -747,7 +762,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       return;
     }
 
-    if (_responsavelNomeCtrl.text.trim().isEmpty) {
+    if (_responsavelNomeCtrl.text.trim().isEmpty && !widget.isEnvioGerente) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Por favor, informe o nome legível do responsável.'),
@@ -783,10 +798,18 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       observacoes: _observacoesLogAnterior,
     );
 
-    // Extrai imagem PNG da nova assinatura ou reaproveita assinatura salva
-    final Uint8List? assinaturaBytes = usandoAssinaturaNova
+    // Extrai imagem PNG da nova assinatura ou reaproveita assinatura salva (ou fallback 1x1 no modo envio p/ gerente)
+    Uint8List? assinaturaBytes = usandoAssinaturaNova
         ? await _signatureController.toPngBytes()
         : _assinaturaSalvaBytes;
+    if ((assinaturaBytes == null || assinaturaBytes.isEmpty) && widget.isEnvioGerente) {
+      assinaturaBytes = Uint8List.fromList([
+        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1,
+        0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 11, 73, 68, 65, 84,
+        120, 1, 99, 96, 0, 0, 0, 2, 0, 1, 244, 113, 100, 166, 0, 0, 0, 0, 73, 69,
+        78, 68, 174, 66, 96, 130
+      ]);
+    }
     if (assinaturaBytes == null || assinaturaBytes.isEmpty) {
       setState(() => _isSubmitting = false);
       if (mounted) {
@@ -809,6 +832,59 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
     }
 
     _assinaturaSalvaBytes = assinaturaBytes;
+
+    // Quando enviado pelo botão "Relatório p/ Gerente", consolida custos automaticamente e ativa status Verde no Gerente
+    if (widget.isEnvioGerente) {
+      double horasNormaisCalc = 0.0;
+      double horasViagemCalc = 0.0;
+      for (final d in _diasTrabalho) {
+        final mult = d.numeroTecnicos > 0 ? d.numeroTecnicos : 1;
+        horasNormaisCalc += (d.horasLiquidasMinutos * mult) / 60.0;
+        horasViagemCalc += (d.horasViagemMinutos * mult) / 60.0;
+      }
+      final chamadoBase = widget.chamado ??
+          ChamadosService.instance.obterChamadoPorId(_chamadoId) ??
+          ChamadosService.instance.obterChamadoPorNumeroAts(_numeroAts);
+      final existingCustos = _relatorioCustosJsonAtual != null
+          ? RelatorioCustosGerente.fromMap(_relatorioCustosJsonAtual!)
+          : null;
+
+      final custosAtualizados = RelatorioCustosGerente(
+        horasNormais: existingCustos != null && existingCustos.horasNormais > 0
+            ? existingCustos.horasNormais
+            : horasNormaisCalc,
+        taxaHoraNormal: existingCustos?.taxaHoraNormal ??
+            chamadoBase?.taxaHorariaComercial ??
+            306.0,
+        horasExtras: existingCustos?.horasExtras ?? 0.0,
+        taxaHoraExtra: existingCustos?.taxaHoraExtra ??
+            chamadoBase?.taxaHorariaExtra ??
+            459.0,
+        horasEspeciais: existingCustos?.horasEspeciais ?? 0.0,
+        taxaHoraEspecial: existingCustos?.taxaHoraEspecial ??
+            chamadoBase?.taxaHorariaEspecial ??
+            612.0,
+        horasViagem: existingCustos != null && existingCustos.horasViagem > 0
+            ? existingCustos.horasViagem
+            : horasViagemCalc,
+        taxaHoraViagem: existingCustos?.taxaHoraViagem ??
+            chamadoBase?.taxaHorariaComercial ??
+            306.0,
+        kmRodado: kmRodado,
+        taxaKm: existingCustos?.taxaKm ?? chamadoBase?.taxaKm ?? 3.20,
+        pedagio: pedagio,
+        refeicao: refeicao,
+        hospedagem: _hospedagemAnterior,
+        pecasOutros: _outrosCustosAnterior,
+        observacoes: _observacoesLogAnterior,
+        enviadoEm: DateTime.now(),
+      );
+
+      _relatorioGerenteEnviadoAtual = true;
+      _relatorioGerenteDataAtual = DateTime.now();
+      _custoTotalGeradoAtual = custosAtualizados.custoTotalGerado;
+      _relatorioCustosJsonAtual = custosAtualizados.toMap();
+    }
 
     // --------------------------------------------------------------------------
     // PASSO 1: Salvar localmente no banco de dados local (Hive) - Offline-First
@@ -851,13 +927,16 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
 
     if (isOffline) {
       // CENÁRIO OFFLINE: Notifica o usuário e conclui localmente
+      final int versaoOffline = widget.isEnvioGerente
+          ? (_versaoRelatorioAtual > 0 ? _versaoRelatorioAtual : 1)
+          : _proximaVersaoRelatorio;
       await ChamadosService.instance.finalizarChamado(
         numeroAts: _numeroAts,
         chamadoId: _chamadoId,
         responsavelNome: _responsavelNomeCtrl.text.trim(),
         defeitoRelatado: _defeitoRelatado,
         servicoExecutado: _servicoExecutadoCtrl.text.trim(),
-        relatorioVersao: _proximaVersaoRelatorio,
+        relatorioVersao: versaoOffline,
         relatorioGerenteEnviado: _relatorioGerenteEnviadoAtual,
         relatorioGerenteData: _relatorioGerenteDataAtual,
         custoTotalGerado: _custoTotalGeradoAtual,
@@ -918,9 +997,11 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
     try {
       final client = Supabase.instance.client;
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final int novaVersao = widget.isRevisao
-          ? (_versaoRelatorioAtual > 0 ? _versaoRelatorioAtual + 1 : 2)
-          : (_versaoRelatorioAtual > 0 ? _versaoRelatorioAtual + 1 : 1);
+      final int novaVersao = widget.isEnvioGerente
+          ? (_versaoRelatorioAtual > 0 ? _versaoRelatorioAtual : 1)
+          : (widget.isRevisao
+              ? (_versaoRelatorioAtual > 0 ? _versaoRelatorioAtual + 1 : 2)
+              : (_versaoRelatorioAtual > 0 ? _versaoRelatorioAtual + 1 : 1));
       final cleanAts = _numeroAts.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
 
       // A. Upload da assinatura (apenas se nova assinatura desenhada ou se não havia URL anterior)
@@ -1042,6 +1123,11 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
         if (pdfUrl != null) 'relatorio_pdf_url': pdfUrl,
         'relatorio_versao': novaVersao,
         'relatorio_gerente_enviado': _relatorioGerenteEnviadoAtual,
+        if (_relatorioGerenteDataAtual != null)
+          'relatorio_gerente_data': _relatorioGerenteDataAtual!.toIso8601String(),
+        if (widget.isEnvioGerente) 'custo_total_gerado': _custoTotalGeradoAtual,
+        if (widget.isEnvioGerente && _relatorioCustosJsonAtual != null)
+          'relatorio_custos_json': _relatorioCustosJsonAtual,
         'servico_executado': _servicoExecutadoCtrl.text.trim(),
         'termos_aceitos': true,
         'responsavel_aceite_nome': _responsavelNomeCtrl.text.trim(),
@@ -1193,9 +1279,11 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            novaVersao > 1
-                ? 'ATS Nº $_numeroAts atualizada para Finalizado v$novaVersao (versão anterior removida)!'
-                : 'ATS Nº $_numeroAts salva como Finalizado v$novaVersao!',
+            widget.isEnvioGerente
+                ? 'KM e despesas atualizados em Finalizado v$novaVersao! Relatório p/ Gerente enviado com sucesso.'
+                : (novaVersao > 1
+                    ? 'ATS Nº $_numeroAts atualizada para Finalizado v$novaVersao (versão anterior removida)!'
+                    : 'ATS Nº $_numeroAts salva como Finalizado v$novaVersao!'),
           ),
           backgroundColor: const Color(0xFF10B981),
           behavior: SnackBarBehavior.floating,
@@ -1292,6 +1380,39 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
                 const SizedBox(height: 12),
               ],
               // -------------------------------------------------------------
+              // BANNER DE MODO RELATÓRIO P/ GERENTE (ATUALIZAÇÃO DE KM)
+              // -------------------------------------------------------------
+              if (widget.isEnvioGerente) ...[
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF7ED),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFFDBA74), width: 1.5),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.directions_car_filled_outlined, color: Color(0xFFEA580C), size: 22),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Relatório p/ Gerente — Finalizado v${_versaoRelatorioAtual > 0 ? _versaoRelatorioAtual : 1}: Atualize o KM rodado e despesas gerais do atendimento abaixo e toque em "Atualizar e Enviar p/ Gerente". O status mudará para Verde na tabela do gerente.',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF9A3412),
+                            fontWeight: FontWeight.w600,
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+
+              // -------------------------------------------------------------
               // BANNER DE REVISÃO (REFAZER RELATÓRIO)
               // -------------------------------------------------------------
               if (widget.isRevisao) ...[
@@ -1360,7 +1481,7 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
                 _buildCardAssinatura(),
                 const SizedBox(height: 24),
 
-                // BOTÃO DE FINALIZAÇÃO (OFFLINE-FIRST)
+                // BOTÃO DE FINALIZAÇÃO / ENVIO P/ GERENTE
                 ElevatedButton.icon(
                   onPressed: _isSubmitting ? null : _finalizarAtendimento,
                   icon: _isSubmitting
@@ -1369,12 +1490,19 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
                           height: 20,
                           child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
                         )
-                      : const Icon(Icons.check_circle_outline, size: 20),
+                      : Icon(
+                          widget.isEnvioGerente ? Icons.send_rounded : Icons.check_circle_outline,
+                          size: 20,
+                        ),
                   label: Text(
-                    widget.isRevisao
-                        ? (_isSubmitting ? 'Processando Revisão...' : 'Assinar e Finalizar (v$_proximaVersaoRelatorio)')
-                        : (_isSubmitting ? 'Processando Atendimento...' : 'Finalizar Atendimento ATS (v$_proximaVersaoRelatorio)'),
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    widget.isEnvioGerente
+                        ? (_isSubmitting
+                            ? 'Atualizando e Enviando...'
+                            : 'Atualizar e Enviar p/ Gerente (Finalizado v${_versaoRelatorioAtual > 0 ? _versaoRelatorioAtual : 1})')
+                        : (widget.isRevisao
+                            ? (_isSubmitting ? 'Processando Revisão...' : 'Assinar e Finalizar (v$_proximaVersaoRelatorio)')
+                            : (_isSubmitting ? 'Processando Atendimento...' : 'Finalizar Atendimento ATS (v$_proximaVersaoRelatorio)')),
+                    style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.bold),
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF10B981),
@@ -2377,27 +2505,57 @@ class _AtsFormScreenState extends State<AtsFormScreen> {
 
   /// SEÇÃO 2.1: Despesas Gerais do Atendimento (KM, Pedágio, Refeição)
   Widget _buildCardDespesasGerais() {
+    final destacarKm = widget.isEnvioGerente;
     return Container(
+      key: _despesasGeraisKey,
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: destacarKm ? const Color(0xFFFFFBF5) : Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        border: Border.all(
+          color: destacarKm ? const Color(0xFFEA580C) : const Color(0xFFE2E8F0),
+          width: destacarKm ? 2.0 : 1.0,
+        ),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 8, offset: const Offset(0, 2)),
+          BoxShadow(
+            color: destacarKm
+                ? const Color(0xFFEA580C).withOpacity(0.12)
+                : Colors.black.withOpacity(0.03),
+            blurRadius: destacarKm ? 12 : 8,
+            offset: const Offset(0, 2),
+          ),
         ],
       ),
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
-              Icon(Icons.directions_car_outlined, color: Color(0xFF0A369D), size: 20),
-              SizedBox(width: 8),
-              Text(
-                'Despesas Gerais do Atendimento',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+              Icon(
+                Icons.directions_car_outlined,
+                color: destacarKm ? const Color(0xFFEA580C) : const Color(0xFF0A369D),
+                size: 20,
               ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Despesas Gerais do Atendimento',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                ),
+              ),
+              if (destacarKm)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFEDD5),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: const Color(0xFFFDBA74)),
+                  ),
+                  child: const Text(
+                    'Atualize o KM aqui',
+                    style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Color(0xFFC2410C)),
+                  ),
+                ),
             ],
           ),
           const SizedBox(height: 14),

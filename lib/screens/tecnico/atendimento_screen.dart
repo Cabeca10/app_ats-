@@ -42,6 +42,7 @@ class AtendimentoScreen extends StatefulWidget {
   final Ticket? ticket;
   final Chamado? chamado;
   final bool isRevisao;
+  final bool isEnvioGerente;
   final int initialTabIndex;
 
   const AtendimentoScreen({
@@ -49,6 +50,7 @@ class AtendimentoScreen extends StatefulWidget {
     this.ticket,
     this.chamado,
     this.isRevisao = false,
+    this.isEnvioGerente = false,
     this.initialTabIndex = 1,
   });
 
@@ -570,7 +572,9 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              widget.isRevisao ? 'O.S. $_numeroAts (Revisão)' : 'O.S. $_numeroAts',
+              widget.isEnvioGerente
+                  ? 'O.S. $_numeroAts (Relatório p/ Gerente)'
+                  : (widget.isRevisao ? 'O.S. $_numeroAts (Revisão)' : 'O.S. $_numeroAts'),
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             Text(
@@ -622,6 +626,7 @@ class _AtendimentoScreenState extends State<AtendimentoScreen> {
             chamado: widget.chamado,
             isEmbedded: true,
             isRevisao: widget.isRevisao,
+            isEnvioGerente: widget.isEnvioGerente,
           ),
 
           // ABA 2: CHAT IA (PLACEHOLDER E MANUAIS)

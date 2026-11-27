@@ -30,6 +30,7 @@ class _RelatorioGerenteDialogState extends State<RelatorioGerenteDialog> {
 
   bool _carregando = true;
   bool _salvando = false;
+  bool _marcarEnviadoVerde = false;
 
   late Chamado _chamadoAtual;
   List<DiaTrabalho> _diasTrabalho = [];
@@ -275,7 +276,10 @@ class _RelatorioGerenteDialogState extends State<RelatorioGerenteDialog> {
     }
 
     if (mounted) {
-      setState(() => _carregando = false);
+      setState(() {
+        _marcarEnviadoVerde = _chamadoAtual.relatorioGerenteEnviado;
+        _carregando = false;
+      });
     }
   }
 
@@ -450,7 +454,7 @@ class _RelatorioGerenteDialogState extends State<RelatorioGerenteDialog> {
         await OfflineStorageService.instance.marcarSincronizado(_chamadoAtual.id);
       }
 
-      // 4. Registra no chamado (relatorio_gerente_enviado = true -> Verde no Gerente)
+      // 4. Registra cálculo de custos no chamado (mantém ou marca Verde conforme status/confirmação)
       await ChamadosService.instance.registrarRelatorioGerente(
         chamadoId: _chamadoAtual.id,
         numeroAts: _chamadoAtual.numeroAts,
@@ -458,13 +462,14 @@ class _RelatorioGerenteDialogState extends State<RelatorioGerenteDialog> {
         relatorioCustosJson: custosMap,
         relatorioPdfUrl: pdfUrl,
         relatorioVersao: versao,
+        marcarComoEnviado: _chamadoAtual.relatorioGerenteEnviado || _marcarEnviadoVerde,
       );
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Relatório p/ Gerente enviado! Custo total: ${_currencyFormat.format(totalGerado)}',
+            'Cálculo de custos salvo! Total do atendimento: ${_currencyFormat.format(totalGerado)}',
           ),
           backgroundColor: const Color(0xFF10B981),
           behavior: SnackBarBehavior.floating,
@@ -566,7 +571,7 @@ class _RelatorioGerenteDialogState extends State<RelatorioGerenteDialog> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Relatório p/ Gerente • $atsLabel',
+                  'Cálculo de Custos do Chamado • $atsLabel',
                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 Text(
@@ -603,7 +608,7 @@ class _RelatorioGerenteDialogState extends State<RelatorioGerenteDialog> {
                         border: Border.all(color: const Color(0xFFBFDBFE)),
                       ),
                       child: const Text(
-                        'Atualize a quilometragem final (ida e volta ao chegar em casa), despesas e horas para enviar o custo total completo ao gerente cobrar o cliente.',
+                        'Confira ou ajuste o KM informado pelo técnico, despesas, horas e taxas unitárias para apurar o custo gasto total do atendimento.',
                         style: TextStyle(fontSize: 12, color: Color(0xFF1E3A8A), height: 1.35),
                       ),
                     ),
@@ -876,6 +881,21 @@ class _RelatorioGerenteDialogState extends State<RelatorioGerenteDialog> {
                         ],
                       ),
                     ),
+                    if (!_chamadoAtual.relatorioGerenteEnviado) ...[
+                      const SizedBox(height: 8),
+                      CheckboxListTile(
+                        value: _marcarEnviadoVerde,
+                        onChanged: (val) => setState(() => _marcarEnviadoVerde = val ?? false),
+                        activeColor: const Color(0xFF10B981),
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        title: const Text(
+                          'Confirmar fechamento e marcar Relatório Finalizado em Verde',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -893,8 +913,8 @@ class _RelatorioGerenteDialogState extends State<RelatorioGerenteDialog> {
                   height: 16,
                   child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
                 )
-              : const Icon(Icons.send_rounded, size: 17),
-          label: Text(_salvando ? 'Enviando...' : 'Enviar Relatório p/ Gerente'),
+              : const Icon(Icons.save_outlined, size: 17),
+          label: Text(_salvando ? 'Salvando...' : 'Salvar Cálculo de Custos'),
           style: ElevatedButton.styleFrom(
             backgroundColor: const Color(0xFF10B981),
             foregroundColor: Colors.white,

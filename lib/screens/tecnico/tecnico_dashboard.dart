@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:printing/printing.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -18,7 +17,6 @@ import '../../services/orientation_service.dart';
 import '../../services/orcamento_pdf_service.dart';
 import '../../services/pwa_helper.dart';
 import '../../widgets/planilha_reembolso_widget.dart';
-import '../../widgets/relatorio_gerente_dialog.dart';
 import 'package:uuid/uuid.dart';
 
 const Color _emerald = Color(0xFF10B981);
@@ -850,6 +848,7 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
   Future<void> _abrirAtendimento(
     Ticket ticket, {
     bool isRevisao = false,
+    bool isEnvioGerente = false,
     int initialTabIndex = 1,
   }) async {
     Chamado? chamado;
@@ -867,6 +866,7 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
           ticket: ticket,
           chamado: chamado,
           isRevisao: isRevisao,
+          isEnvioGerente: isEnvioGerente,
           initialTabIndex: initialTabIndex,
         ),
       ),
@@ -963,40 +963,11 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
   }
 
   Future<void> _abrirRelatorioGerente(Ticket ticket) async {
-    Chamado? chamado;
-    if (ticket.chamadoId != null && ticket.chamadoId!.isNotEmpty) {
-      chamado = ChamadosService.instance.obterChamadoPorId(ticket.chamadoId!);
-    }
-    if (chamado == null && ticket.numeroAts != null && ticket.numeroAts!.isNotEmpty) {
-      chamado = ChamadosService.instance.obterChamadoPorNumeroAts(ticket.numeroAts!);
-    }
-
-    chamado ??= Chamado(
-      id: ticket.chamadoId ?? ticket.id,
-      numeroAts: ticket.numeroAts ?? ticket.id.replaceAll('ATS-', ''),
-      razaoSocial: ticket.companyName,
-      modeloMaquina: ticket.machineModel,
-      endereco: ticket.address,
-      defeitoRelatado: ticket.defeitoRelatado,
-      orcamentoPdfUrl: ticket.orcamentoPdfUrl,
-      relatorioPdfUrl: ticket.relatorioPdfUrl,
-      relatorioVersao: ticket.relatorioVersao > 0 ? ticket.relatorioVersao : 1,
-      relatorioGerenteEnviado: ticket.relatorioGerenteEnviado,
-      custoTotalGerado: ticket.custoTotalGerado,
-      tokenUrl: const Uuid().v4(),
-      status: ChamadoStatus.finalizado,
+    await _abrirAtendimento(
+      ticket,
+      isEnvioGerente: true,
+      initialTabIndex: 1,
     );
-
-    final enviado = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => RelatorioGerenteDialog(chamado: chamado!),
-    );
-
-    if (enviado == true && mounted) {
-      await _carregarChamadosDoTecnico();
-      await ChamadosService.instance.recarregarChamados();
-    }
   }
 
   Widget _buildTicketCard(Ticket ticket) {
@@ -1300,11 +1271,7 @@ class _TecnicoDashboardState extends State<TecnicoDashboard> {
                                             OutlinedButton.icon(
                                               onPressed: () => _abrirRelatorioGerente(ticket),
                                               icon: const Icon(Icons.check_circle_outline, size: 15),
-                                              label: Text(
-                                                ticket.custoTotalGerado > 0
-                                                    ? 'Relatório p/ Gerente ✓ (${NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$').format(ticket.custoTotalGerado)})'
-                                                    : 'Relatório p/ Gerente ✓',
-                                              ),
+                                              label: const Text('Relatório p/ Gerente ✓'),
                                               style: OutlinedButton.styleFrom(
                                                 foregroundColor: const Color(0xFF059669),
                                                 backgroundColor: const Color(0xFFECFDF5),

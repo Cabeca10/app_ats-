@@ -628,11 +628,12 @@ class ChamadosService {
     required Map<String, dynamic> relatorioCustosJson,
     String? relatorioPdfUrl,
     int? relatorioVersao,
+    bool marcarComoEnviado = true,
   }) async {
     final agora = DateTime.now();
     final updateData = <String, dynamic>{
-      'relatorio_gerente_enviado': true,
-      'relatorio_gerente_data': agora.toIso8601String(),
+      'relatorio_gerente_enviado': marcarComoEnviado,
+      if (marcarComoEnviado) 'relatorio_gerente_data': agora.toIso8601String(),
       'custo_total_gerado': custoTotalGerado,
       'relatorio_custos_json': relatorioCustosJson,
       'updated_at': agora.toIso8601String(),
@@ -674,8 +675,8 @@ class ChamadosService {
       if (index != -1) {
         final atual = listaAtual[index];
         listaAtual[index] = atual.copyWith(
-          relatorioGerenteEnviado: true,
-          relatorioGerenteData: agora,
+          relatorioGerenteEnviado: marcarComoEnviado,
+          relatorioGerenteData: marcarComoEnviado ? agora : atual.relatorioGerenteData,
           custoTotalGerado: custoTotalGerado,
           relatorioCustosJson: relatorioCustosJson,
           relatorioPdfUrl: (relatorioPdfUrl != null && relatorioPdfUrl.trim().isNotEmpty)

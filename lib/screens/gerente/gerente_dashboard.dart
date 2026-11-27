@@ -22,6 +22,7 @@ import '../../services/tecnicos_service.dart';
 import '../../utils/url_helper.dart';
 import '../../widgets/documentacao_pasta_dialog.dart';
 import '../../widgets/planilha_reembolso_widget.dart';
+import '../../widgets/relatorio_gerente_dialog.dart';
 import 'chamados_list_screen.dart';
 
 const Color _emerald = Color(0xFF10B981);
@@ -711,6 +712,7 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                               DataColumn(label: Text('Abertura', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
                               DataColumn(label: Text('Ações', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
                               DataColumn(label: Text('Relatório Finalizado', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                              DataColumn(label: Text('Custo Total', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
                               DataColumn(label: Text('Pdf Aprovado', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
                               DataColumn(label: Text('Excluir', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
                             ],
@@ -875,6 +877,7 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                                     ),
                                   ),
                                   DataCell(_buildBotaoRelatorioFinalizado(c, temRelatorioFinal, versaoRelatorio)),
+                                  DataCell(_buildBotaoCalculoCustos(c, temRelatorioFinal)),
                                   DataCell(
                                     temPdfAprovado
                                         ? OutlinedButton.icon(
@@ -1139,6 +1142,7 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                               DataColumn(label: Text('Status', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
                               DataColumn(label: Text('Fotos e Descritivo', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
                               DataColumn(label: Text('Relatório Final', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
+                              DataColumn(label: Text('Custo Total', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12))),
                             ],
                             rows: chamados.map((c) {
                               final doc = _documentacoesPorChamado[c.id];
@@ -1219,6 +1223,7 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
                                     ),
                                   ),
                                   DataCell(_buildBotaoRelatorioFinalizado(c, temRelatorioFinal, versaoRelatorio)),
+                                  DataCell(_buildBotaoCalculoCustos(c, temRelatorioFinal)),
                                 ],
                               );
                             }).toList(),
@@ -1245,14 +1250,11 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
     final Color fg = enviadoGerente ? const Color(0xFF15803D) : const Color(0xFFC2410C);
     final Color bg = enviadoGerente ? const Color(0xFFF0FDF4) : const Color(0xFFFFF7ED);
     final Color border = enviadoGerente ? const Color(0xFF86EFAC) : const Color(0xFFFDBA74);
-    final String valorSuffix = (enviadoGerente && c.custoTotalGerado > 0)
-        ? ' • ${NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$').format(c.custoTotalGerado)}'
-        : '';
 
     return Tooltip(
       message: enviadoGerente
           ? 'Relatório p/ Gerente recebido — Pronto para cobrar o cliente'
-          : 'Aguardando técnico enviar Relatório p/ Gerente (KM e custos finais)',
+          : 'Aguardando técnico atualizar KM em Relatório p/ Gerente',
       child: OutlinedButton.icon(
         onPressed: _abrindoRelatorioChamadoId == c.id
             ? null
@@ -1273,7 +1275,7 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
         label: Text(
           _abrindoRelatorioChamadoId == c.id
               ? 'Abrindo...'
-              : 'Finalizado v$versaoRelatorio$valorSuffix',
+              : 'Finalizado v$versaoRelatorio',
         ),
         style: OutlinedButton.styleFrom(
           foregroundColor: fg,
@@ -1284,6 +1286,52 @@ class _GerenteDashboardState extends State<GerenteDashboard> {
         ),
       ),
     );
+  }
+
+  Widget _buildBotaoCalculoCustos(Chamado c, bool temRelatorioFinal) {
+    if (!temRelatorioFinal) {
+      return const Text(
+        'Aguardando',
+        style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+      );
+    }
+
+    final enviadoGerente = c.relatorioGerenteEnviado;
+    final temValor = c.custoTotalGerado > 0;
+    final label = (temValor || enviadoGerente)
+        ? NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$').format(c.custoTotalGerado)
+        : 'Calcular Custos';
+
+    final Color fg = enviadoGerente ? const Color(0xFF0A369D) : const Color(0xFFD97706);
+    final Color bg = enviadoGerente ? const Color(0xFFEFF6FF) : const Color(0xFFFFFBEB);
+    final Color border = enviadoGerente ? const Color(0xFF93C5FD) : const Color(0xFFFCD34D);
+
+    return Tooltip(
+      message: 'Abrir planilha de cálculo de KM, horas, despesas e custo total',
+      child: OutlinedButton.icon(
+        onPressed: () => _abrirModalCalculoCustos(c),
+        icon: const Icon(Icons.calculate_outlined, size: 15),
+        label: Text(label),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: fg,
+          backgroundColor: bg,
+          side: BorderSide(color: border, width: 1.3),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _abrirModalCalculoCustos(Chamado chamado) async {
+    final atualizado = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => RelatorioGerenteDialog(chamado: chamado),
+    );
+    if (atualizado == true && mounted) {
+      await ChamadosService.instance.recarregarChamados();
+    }
   }
 
   String _gerarUrlPublica(Chamado chamado) {
