@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
-        android:label="app_ats"
+        android:label="Pmach ATS"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
